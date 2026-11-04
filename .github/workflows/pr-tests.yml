@@ -14,10 +14,23 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      # The action's bundled installer downloads from get.trivy.dev, which can fail DNS.
+      # Fetch the official release directly and verify its pinned SHA-256 instead.
+      - name: Install verified Trivy
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/trivy_0.76.1_Linux-64bit.tar.gz"
+          curl --fail --location --retry 5 --retry-all-errors --output "$archive" \
+            https://github.com/aquasecurity/trivy/releases/download/v0.76.1/trivy_0.76.1_Linux-64bit.tar.gz
+          echo "c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0  $archive" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/trivy-bin"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/trivy-bin" trivy
+          echo "$RUNNER_TEMP/trivy-bin" >> "$GITHUB_PATH"
       - name: Scan dependencies and secrets
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          version: v0.76.1
+          skip-setup-trivy: true
           scan-type: fs
           scan-ref: .
           scanners: vuln,secret
