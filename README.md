@@ -35,7 +35,7 @@ Host networking shares the host network namespace; it is not appropriate for unt
 
 ## Development
 
-Pull requests run formatting, all-target tests, and Clippy on stable Rust. The tests use temporary playlists and loopback HTTP servers; no external IPTV services or mpv are needed. Run the same checks locally:
+Pull requests run formatting, all-target tests, and Clippy on stable Rust. A separate Trivy filesystem scan checks locked Rust dependencies and repository files for vulnerabilities and secrets. It fails on HIGH or CRITICAL findings, including vulnerabilities without a fix; lower-severity findings are not shown or gated. Results appear in the Actions log. Configure branch protection or a ruleset to require both the Rust and Trivy checks before merging; the workflow alone cannot enforce that requirement. The tests use temporary playlists and loopback HTTP servers; no external IPTV services or mpv are needed. Run the Rust checks locally:
 
 ```sh
 cargo fmt --all -- --check
