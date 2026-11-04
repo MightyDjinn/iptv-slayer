@@ -75,16 +75,21 @@ fn web_serves_channels_and_rejects_untrusted_hosts() {
         .read_line(&mut ready)
         .unwrap();
     assert_eq!(ready.trim(), "READY");
-    fn get(port: u16, path: &str, host: &str) -> String {
+    fn request(port: u16, method: &str, path: &str, host: &str) -> String {
         let mut conn = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        conn.set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
         write!(
             conn,
-            "GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+            "{method} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
         )
         .unwrap();
         let mut response = String::new();
         conn.read_to_string(&mut response).unwrap();
         response
+    }
+    fn get(port: u16, path: &str, host: &str) -> String {
+        request(port, "GET", path, host)
     }
     let response = get(port, "/api/channels", &format!("127.0.0.1:{port}"));
     assert!(response.starts_with("HTTP/1.1 200"));
@@ -96,6 +101,20 @@ fn web_serves_channels_and_rejects_untrusted_hosts() {
     let html = get(port, "/", &format!("127.0.0.1:{port}"));
     assert!(html.contains("button.textContent"));
     assert!(!html.contains("innerHTML"));
+    let headers = response.to_ascii_lowercase();
+    assert!(headers.contains("content-type: application/json"));
+    assert!(headers.contains("cache-control: no-store"));
+    assert!(headers.contains("x-content-type-options: nosniff"));
+    assert!(headers.contains("content-security-policy:"));
+    let host = format!("127.0.0.1:{port}");
+    assert!(get(port, "/missing", &host).starts_with("HTTP/1.1 404"));
+    assert!(request(port, "POST", "/api/channels", &host).starts_with("HTTP/1.1 405"));
+    assert!(request(port, "POST", "/api/channels", "evil.example").starts_with("HTTP/1.1 403"));
+    let body = response.split_once("\r\n\r\n").unwrap().1;
+    let channels: serde_json::Value = serde_json::from_str(body).unwrap();
+    assert_eq!(channels.as_array().unwrap().len(), 1);
+    assert_eq!(channels[0]["name"], "<img src=x onerror=alert(1)>");
+    assert_eq!(channels[0]["url"], "https://example.com/secret?token=abc");
 }
 
 #[test]

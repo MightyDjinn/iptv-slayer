@@ -35,8 +35,10 @@ Host networking shares the host network namespace; it is not appropriate for unt
 
 ## Development
 
+Pull requests run formatting, all-target tests, and Clippy on stable Rust. The tests use temporary playlists and loopback HTTP servers; no external IPTV services or mpv are needed. Run the same checks locally:
+
 ```sh
-cargo fmt --check
-cargo test --locked
-cargo clippy --all-targets -- -D warnings
+cargo fmt --all -- --check
+cargo test --locked --all-targets
+cargo clippy --locked --all-targets -- -D warnings
 ```
