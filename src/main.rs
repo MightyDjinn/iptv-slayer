@@ -49,7 +49,15 @@ fn parse_playlist(text: &str, base: Option<&Url>) -> Vec<Channel> {
     for line in text.lines() {
         let line = line.trim().trim_start_matches('\u{feff}');
         if let Some(info) = line.strip_prefix("#EXTINF:") {
-            name = info.split_once(',').map(|(_, n)| n.trim().to_owned());
+            let mut quoted = false;
+            name = info.char_indices().find_map(|(i, c)| match c {
+                '"' => {
+                    quoted = !quoted;
+                    None
+                }
+                ',' if !quoted => Some(info[i + 1..].trim().to_owned()),
+                _ => None,
+            });
         } else if !line.is_empty() && !line.starts_with('#') {
             let parsed = Url::parse(line).or_else(|_| {
                 base.ok_or(url::ParseError::RelativeUrlWithoutBase)?
@@ -249,6 +257,16 @@ fn serve(channels: Vec<Channel>, port: u16) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn playlist_name_ignores_commas_in_quoted_attributes() {
+        let channels = super::parse_playlist(
+            "#EXTINF:-1 group-title=\"News, World\",Actual channel\nhttps://example.com/live\n",
+            None,
+        );
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].name, "Actual channel");
+    }
+
     #[test]
     fn default_http_port_accepts_loopback_host_without_port() {
         assert!(super::allowed_host("127.0.0.1", 80));
