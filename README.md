@@ -1,44 +1,65 @@
+<p align="center"><img src="docs/assets/logo.svg" alt="IPTV Slayer — your playlist, your screen" width="800"></p>
+
 # IPTV Slayer
 
-A small Rust IPTV playlist client. Bring your own legal M3U playlist and streams; no channels are included. Rust and Cargo are needed to build, and `mpv` is required for CLI playback.
+A small Rust IPTV playlist browser with CLI playback via mpv and a local browser UI. Bring your own **legal** M3U playlist and streams; no channels are included.
+
+## Quick start: build from source
+
+Install [Rust and Cargo](https://rustup.rs/) and, for CLI playback, [mpv](https://mpv.io/). Clone and build:
 
 ```sh
+git clone https://github.com/MightyDjinn/iptv-slayer.git
+cd iptv-slayer
 cargo build --release --locked
 ./target/release/iptv-slayer --playlist ./channels.m3u list
 ./target/release/iptv-slayer --playlist ./channels.m3u list --search news
 ./target/release/iptv-slayer --playlist ./channels.m3u play 1
-./target/release/iptv-slayer --playlist https://example.org/playlist.m3u --web
+./target/release/iptv-slayer --playlist ./channels.m3u --web --foreground
 ```
 
-`list` is the default action. Channel numbers are 1-based and remain the same when filtering. `play` invokes `mpv -- URL` without a shell and waits for it to exit. `--web` starts a detached child, waits until it has loaded the playlist and bound the port, prints its PID and returns. Stop it with `kill PID`; there is no PID file, restart policy or log file. Use `--web --foreground` to run under a service manager or diagnose startup failures. The UI is at http://127.0.0.1:8080; change the port with `--port 8081`. It binds IPv4 loopback only and offers no remote-bind option.
+Open http://127.0.0.1:8080; stop the foreground server with Ctrl-C. Replace the file with an HTTP(S) playlist URL if desired. Channel numbers are 1-based and retain their original values after filtering; `list` is the default. `play` launches mpv. Use `--port 8081` to change the web port. Without `--foreground`, `--web` starts a detached process and prints its PID; stop it with `kill PID`. The playlist is loaded once at startup; restart to refresh it.
 
-The browser UI has name search, a channel list and a native HTML video player. The **browser**, not the server, requests the selected stream. Browser codec/container and HLS support vary; streams requiring provider-specific headers, DRM, authentication, or unsupported formats may not play. Cross-origin/provider restrictions may also prevent playback. There is no HLS JavaScript library, transcoding, proxy, or mpv integration in the web UI; CLI mpv may play streams the browser cannot. A failed video reports an error. Playlist is loaded once at startup; restart to refresh.
+## Docker Compose (Linux)
 
-## Playlist support and security
+Install Docker Engine and the Compose plugin. Put a UTF-8 playlist at `./channels.m3u`, readable by UID 10001, then:
 
-UTF-8 extended M3U: `#EXTINF` supplies the name after the first comma outside double-quoted attributes; a following HTTP(S) URL supplies the stream. Bare URL lines get generated names. Other comments and attributes are ignored. HTTP(S) relative stream URLs resolve against the originally supplied playlist URL; local relative stream paths and non-HTTP(S) streams are ignored. A maximum of 10 MiB is read; HTTP requests time out after 20 seconds and allow up to five redirects. No EPG, credentials management, `#EXTVLCOPT`, or advanced M3U parsing is provided. Empty or unsupported playlists result in an empty list.
+```sh
+docker compose build
+docker compose up -d
+docker compose logs -f
+# Open http://127.0.0.1:8080; Ctrl-C exits the log viewer.
+docker compose down
+```
 
-Only use trusted playlist sources. The operator explicitly chooses the playlist URL: the initial HTTP fetch and redirects **can reach private network services**, so do not expose this CLI as an untrusted URL-fetching service. The web API has no URL-fetching or arbitrary command endpoint; it serves only the loaded channels. Loopback-only binding and a Host header check help restrict access and DNS rebinding; there is no authentication or TLS. Do not publish or reverse-proxy the UI to an untrusted network. Other local users can access it. Channel names are inserted as text, not HTML, and only HTTP(S) stream URLs are accepted. Selecting a channel contacts its server from the browser; a malicious playlist can therefore direct the browser to network destinations accessible from that browser.
+The included `compose.yaml` uses Linux host networking because the app binds only to loopback; ordinary `ports:` mapping cannot reach container loopback. Docker Desktop host-network support varies by platform and settings. Host networking shares the host network namespace; do not use untrusted playlists. The foreground command keeps the container running. The image has no mpv or graphical environment, so use the host binary for CLI playback.
 
-Playlist and stream URLs can contain credentials. Playlist URL arguments (including background child arguments) and mpv stream arguments may be visible to local process inspection or shell history. Stream URLs are exposed in the local `/api/channels` response and browser developer tools, and providers receive them when played. Avoid sensitive URLs on shared systems. The list output does not display stream URLs. Error messages avoid printing HTTP request URLs.
-
-## Docker
+To run a one-shot list or use Docker without Compose:
 
 ```sh
 docker build -t iptv-slayer .
 docker run --rm -v "$PWD/channels.m3u:/data/channels.m3u:ro" iptv-slayer --playlist /data/channels.m3u list
-# Linux host networking is required for the loopback-only server to be reachable on the host:
 docker run --rm --network host -v "$PWD/channels.m3u:/data/channels.m3u:ro" iptv-slayer --playlist /data/channels.m3u --web --foreground
 ```
 
-Host networking shares the host network namespace; it is not appropriate for untrusted playlists. `-p` alone cannot reach a service listening on container loopback. Desktop Docker host networking behavior varies. The image has no mpv or graphical environment; use host CLI playback. Foreground mode keeps the container alive; stop with Ctrl-C. The runtime runs as an unprivileged user, so the mounted playlist must be readable by UID 10001.
+## Browser and security
 
-## Development
+The **browser**, not the server, fetches streams. Codec, HLS, cross-origin and provider restrictions may prevent playback; there is no proxy, transcoding, DRM support or HLS JavaScript library. CLI mpv may play streams the browser cannot.
 
-Pull requests run formatting, all-target tests, and Clippy on stable Rust. A separate Trivy filesystem scan checks locked Rust dependencies and repository files for vulnerabilities and secrets. It fails on HIGH or CRITICAL findings, including vulnerabilities without a fix; lower-severity findings are not shown or gated. Results appear in the Actions log. Configure branch protection or a ruleset to require both the Rust and Trivy checks before merging; the workflow alone cannot enforce that requirement. The tests use temporary playlists and loopback HTTP servers; no external IPTV services or mpv are needed. Run the Rust checks locally:
+Only use trusted playlists: HTTP fetches and redirects can reach private network services, and clicking a stream directs your browser to its URL. The local UI has no authentication or TLS; do not expose or reverse-proxy it to untrusted networks. Playlist and stream URLs may contain credentials visible to other local users via process arguments, browser tools or the local API. See [playlist and security details](docs/playlists-security.md).
+
+## Documentation and development
+
+See the [full documentation](docs/index.md), including [installation](docs/installation.md), [usage](docs/usage.md), [security](docs/playlists-security.md), and [development](docs/development.md). When Pages is enabled, it is published at https://mightydjinn.github.io/iptv-slayer/.
 
 ```sh
 cargo fmt --all -- --check
 cargo test --locked --all-targets
 cargo clippy --locked --all-targets -- -D warnings
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r docs/requirements.txt
+mkdocs build --strict
 ```
+
+Pull requests run Rust checks, a strict MkDocs build and a Trivy filesystem scan for HIGH/CRITICAL vulnerabilities and secrets. Configure branch protection to require the checks; the workflow alone does not enforce that requirement.

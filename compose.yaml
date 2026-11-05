@@ -1,0 +1,8 @@
+# Linux Docker Engine: the application listens on host loopback only.
+services:
+  iptv-slayer:
+    build: .
+    network_mode: host
+    volumes:
+      - ./channels.m3u:/data/channels.m3u:ro
+    command: ["--playlist", "/data/channels.m3u", "--web", "--foreground"]
