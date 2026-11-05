@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 240" role="img" aria-labelledby="title desc">
+<title id="title">IPTV Slayer</title><desc id="desc">A glowing television shield crossed by a sword with IPTV Slayer lettering.</desc>
+<defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#3be8dc"/><stop offset="1" stop-color="#a880ff"/></linearGradient></defs>
+<rect width="960" height="240" rx="28" fill="#101322"/><path d="M55 52 113 27l58 25v58c0 41-25 71-58 91-33-20-58-50-58-91z" fill="#1d2940" stroke="url(#g)" stroke-width="6"/>
+<rect x="76" y="71" width="74" height="54" rx="9" fill="#101322" stroke="#3be8dc" stroke-width="5"/><path d="m104 82 23 16-23 16z" fill="#3be8dc"/><path d="m67 181 116-128 8-23-22 10L54 169z" fill="#f3f1ff" stroke="#a880ff" stroke-width="3"/><path d="m57 146 35 31M52 172l-12 13" stroke="#ffbf5e" stroke-width="9" stroke-linecap="round"/>
+<text x="220" y="117" font-family="Verdana,sans-serif" font-size="76" font-weight="bold" letter-spacing="3" fill="#f4f5ff">IPTV <tspan fill="#3be8dc">SLAYER</tspan></text><text x="225" y="161" font-family="Verdana,sans-serif" font-size="20" letter-spacing="5" fill="#b6b9d0">YOUR PLAYLIST. YOUR SCREEN.</text></svg>
