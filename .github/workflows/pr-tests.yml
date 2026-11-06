@@ -55,6 +55,8 @@ jobs:
         run: cargo test --locked --all-targets
       - name: Run Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Test browser playback
+        run: node --test tests/playback.test.cjs
 
   docs:
     name: Build documentation
