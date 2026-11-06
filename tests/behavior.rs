@@ -29,6 +29,20 @@ fn list_preserves_channel_numbers_and_handles_playlist_edge_cases() {
 }
 
 #[test]
+fn playlist_accepts_whitespace_after_utf8_bom() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("playlist.m3u");
+    fs::write(
+        &path,
+        "\u{feff}  #EXTINF:-1,News\nhttps://example.com/live\n",
+    )
+    .unwrap();
+    let output = run(&path, &[]);
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "1\tNews\n");
+}
+
+#[test]
 fn relative_local_playlist_with_colon_in_filename() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(
