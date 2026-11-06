@@ -47,7 +47,7 @@ fn parse_playlist(text: &str, base: Option<&Url>) -> Vec<Channel> {
     let mut channels = Vec::new();
     let mut name: Option<String> = None;
     for line in text.lines() {
-        let line = line.trim().trim_start_matches('\u{feff}');
+        let line = line.trim().trim_start_matches('\u{feff}').trim_start();
         if let Some(info) = line.strip_prefix("#EXTINF:") {
             let mut quoted = false;
             name = info.char_indices().find_map(|(i, c)| match c {
