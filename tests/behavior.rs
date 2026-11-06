@@ -29,6 +29,12 @@ fn list_preserves_channel_numbers_and_handles_playlist_edge_cases() {
 }
 
 #[test]
+fn security_guide_documents_redirected_playlist_base() {
+    let guide = include_str!("../docs/playlists-security.md");
+    assert!(guide.contains("final playlist URL after redirects"));
+}
+
+#[test]
 fn playlist_accepts_whitespace_after_utf8_bom() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("playlist.m3u");
