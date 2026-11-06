@@ -29,6 +29,27 @@ fn list_preserves_channel_numbers_and_handles_playlist_edge_cases() {
 }
 
 #[test]
+fn relative_local_playlist_with_colon_in_filename() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("channels:2026.m3u"),
+        "#EXTINF:-1,News\nhttps://example.com/live\n",
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_iptv-slayer"))
+        .current_dir(dir.path())
+        .args(["--playlist", "channels:2026.m3u"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "1\tNews\n");
+}
+
+#[test]
 fn invalid_play_numbers_fail_before_invoking_player() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("playlist.m3u");

@@ -85,6 +85,14 @@ fn parse_playlist(text: &str, base: Option<&Url>) -> Vec<Channel> {
 }
 fn load(source: &str) -> Result<Vec<Channel>> {
     let mut base = Url::parse(source).ok();
+    // Existing opaque-looking names like `channels:2026.m3u` are local files,
+    // not network URLs. Hierarchical URLs retain the HTTP(S)-only restriction.
+    if base
+        .as_ref()
+        .is_some_and(|url| url.cannot_be_a_base() && std::path::Path::new(source).is_file())
+    {
+        base = None;
+    }
     let mut reader: Box<dyn Read> = if let Some(url) = &base {
         if !matches!(url.scheme(), "http" | "https") {
             bail!("playlist URL must use HTTP(S)");
