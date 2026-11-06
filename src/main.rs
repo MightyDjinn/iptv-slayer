@@ -84,7 +84,7 @@ fn parse_playlist(text: &str, base: Option<&Url>) -> Vec<Channel> {
     channels
 }
 fn load(source: &str) -> Result<Vec<Channel>> {
-    let base = Url::parse(source).ok();
+    let mut base = Url::parse(source).ok();
     let mut reader: Box<dyn Read> = if let Some(url) = &base {
         if !matches!(url.scheme(), "http" | "https") {
             bail!("playlist URL must use HTTP(S)");
@@ -93,16 +93,16 @@ fn load(source: &str) -> Result<Vec<Channel>> {
             .timeout(Duration::from_secs(20))
             .redirect(reqwest::redirect::Policy::limited(5))
             .build()?;
-        Box::new(
-            client
-                .get(url.clone())
-                .send()
-                .map_err(|e| e.without_url())
-                .context("playlist request failed")?
-                .error_for_status()
-                .map_err(|e| e.without_url())
-                .context("playlist request failed")?,
-        )
+        let response = client
+            .get(url.clone())
+            .send()
+            .map_err(|e| e.without_url())
+            .context("playlist request failed")?
+            .error_for_status()
+            .map_err(|e| e.without_url())
+            .context("playlist request failed")?;
+        base = Some(response.url().clone());
+        Box::new(response)
     } else {
         Box::new(File::open(source).context("could not open playlist")?)
     };
@@ -265,6 +265,34 @@ mod tests {
         );
         assert_eq!(channels.len(), 1);
         assert_eq!(channels[0].name, "Actual channel");
+    }
+
+    #[test]
+    fn redirected_playlist_resolves_stream_against_final_url() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            for response in [
+                "HTTP/1.1 302 Found\r\nLocation: /new/list.m3u\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_owned(),
+                "HTTP/1.1 200 OK\r\nContent-Length: 12\r\nConnection: close\r\n\r\nstream.m3u8\n".to_owned(),
+            ] {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+                let mut request = [0; 4096];
+                assert!(stream.read(&mut request).unwrap() > 0);
+                stream.write_all(response.as_bytes()).unwrap();
+            }
+        });
+        let channels = super::load(&format!("http://127.0.0.1:{port}/old/list.m3u")).unwrap();
+        server.join().unwrap();
+        assert_eq!(channels.len(), 1);
+        assert_eq!(
+            channels[0].url,
+            format!("http://127.0.0.1:{port}/new/stream.m3u8")
+        );
     }
 
     #[test]
