@@ -21,6 +21,20 @@ function setup(source = null, fetchOverride = null) {
   return {elements,calls};
 }
 
+test('a delayed source restoration failure does not overwrite a successful replacement', async()=>{
+  let rejectSource;
+  const {elements}=setup(null, url=>{
+    if(url==='/api/source') return new Promise((_,reject)=>{rejectSource=reject});
+    if(url==='/api/playlist') return {ok:true,json:async()=>[{name:'New',url:'https://example.org/live'}]};
+    return {ok:true,json:async()=>[]};
+  });
+  elements['#source-url'].value='https://example.org/list.m3u';
+  await elements['#source-form'].listeners.submit({preventDefault(){}});
+  rejectSource(new Error('offline'));
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(elements['#source-status'].textContent,'Loaded 1 channels.');
+});
+
 test('preserves initial channels when a replacement fails before they arrive', async()=>{
   let resolveChannels;
   const {elements}=setup(null, url=>{
