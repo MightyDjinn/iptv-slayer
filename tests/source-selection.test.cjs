@@ -36,6 +36,21 @@ test('submits an unauthenticated URL without empty credential fields', async()=>
   assert.deepEqual(JSON.parse(request.options.body),{url:'https://example.org/list.m3u'});
 });
 
+test('ignores a second source submission while the first is being read', async()=>{
+  const {elements,calls}=setup();
+  let finish;
+  elements['#source-file'].files=[{size:30,text:()=>new Promise(resolve=>{finish=resolve})}];
+  const first=elements['#source-form'].listeners.submit({preventDefault(){}});
+  elements['#source-file'].files=[];
+  elements['#source-url'].value='https://example.org/list.m3u';
+  await elements['#source-form'].listeners.submit({preventDefault(){}});
+  finish('#EXTM3U\n');
+  await first;
+  const requests=calls.filter(c=>c.url==='/api/playlist');
+  assert.equal(requests.length,1);
+  assert.deepEqual(JSON.parse(requests[0].options.body),{content:'#EXTM3U\n'});
+});
+
 test('uploads the chosen local file contents', async()=>{
   const {elements,calls}=setup();
   elements['#source-file'].files=[{size:30,text:async()=>'#EXTM3U\n'}];

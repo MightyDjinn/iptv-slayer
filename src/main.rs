@@ -243,8 +243,19 @@ fn select_playlist(input: PlaylistRequest) -> Result<Vec<Channel>> {
             if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
                 bail!("invalid URL");
             }
-            let embedded_user = url.username().to_owned();
-            let embedded_password = url.password().map(str::to_owned);
+            let embedded_user = percent_encoding::percent_decode_str(url.username())
+                .decode_utf8()
+                .context("invalid URL credentials")?
+                .into_owned();
+            let embedded_password = url
+                .password()
+                .map(|password| {
+                    percent_encoding::percent_decode_str(password)
+                        .decode_utf8()
+                        .map(|s| s.into_owned())
+                })
+                .transpose()
+                .context("invalid URL credentials")?;
             url.set_username("")
                 .map_err(|_| anyhow::anyhow!("invalid URL"))?;
             url.set_password(None)
@@ -451,6 +462,43 @@ mod tests {
             channels[0].url,
             format!("http://127.0.0.1:{port}/new/stream.m3u8")
         );
+    }
+
+    #[test]
+    fn url_credentials_are_percent_decoded_for_basic_auth() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let worker = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut bytes = [0; 4096];
+            let n = stream.read(&mut bytes).unwrap();
+            let request = String::from_utf8_lossy(&bytes[..n]).to_lowercase();
+            let body = "https://example.org/stream\n";
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+            request
+        });
+        let input = super::PlaylistRequest {
+            content: None,
+            url: Some(format!("http://user:p%40ss@127.0.0.1:{port}/playlist")),
+            username: None,
+            password: None,
+        };
+        assert!(super::select_playlist(input).is_ok());
+        assert!(worker
+            .join()
+            .unwrap()
+            .contains("authorization: basic dxnlcjpwqhnz"));
     }
 
     #[test]
