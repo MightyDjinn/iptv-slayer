@@ -488,6 +488,11 @@ fn serve(channels: Vec<Channel>, port: u16) -> Result<()> {
                     include_str!("index.html").to_owned(),
                     "text/html; charset=utf-8",
                 ),
+                "/app.js" => (
+                    200,
+                    include_str!("app.js").to_owned(),
+                    "application/javascript; charset=utf-8",
+                ),
                 "/api/source" => {
                     let origins: Vec<_> = request
                         .headers()
@@ -588,7 +593,7 @@ fn serve(channels: Vec<Channel>, port: u16) -> Result<()> {
             .with_header(tiny_http::Header::from_bytes("Content-Type", content_type).unwrap())
             .with_header(tiny_http::Header::from_bytes("Cache-Control", "no-store").unwrap())
             .with_header(tiny_http::Header::from_bytes("X-Content-Type-Options", "nosniff").unwrap())
-            .with_header(tiny_http::Header::from_bytes("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; media-src http: https:; base-uri 'none'; frame-ancestors 'none'").unwrap());
+            .with_header(tiny_http::Header::from_bytes("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; media-src http: https:; base-uri 'none'; frame-ancestors 'none'").unwrap());
         if let Some(id) = set_cookie {
             response = response.with_header(
                 tiny_http::Header::from_bytes(

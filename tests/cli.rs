@@ -133,8 +133,22 @@ fn web_serves_channels_and_rejects_untrusted_hosts() {
     assert!(get(port, "/api/channels", "localhost").starts_with("HTTP/1.1 403"));
     assert!(get(port, "/api/channels", &format!("localhost:{port}")).starts_with("HTTP/1.1 200"));
     let html = get(port, "/", &format!("127.0.0.1:{port}"));
-    assert!(html.contains("button.textContent"));
-    assert!(!html.contains("innerHTML"));
+    assert!(html.contains("<script src=\"/app.js\"></script>"));
+    assert!(html.contains("script-src 'self'"));
+    assert!(!html.contains("script-src 'unsafe-inline'"));
+    let script = get(port, "/app.js", &format!("127.0.0.1:{port}"));
+    assert!(script.starts_with("HTTP/1.1 200"));
+    assert!(script
+        .to_ascii_lowercase()
+        .contains("content-type: application/javascript; charset=utf-8"));
+    assert!(script
+        .to_ascii_lowercase()
+        .contains("x-content-type-options: nosniff"));
+    let body = script.split_once("\r\n\r\n").unwrap().1;
+    assert_eq!(body, fs::read_to_string("src/app.js").unwrap());
+    assert!(body.contains("button.textContent"));
+    assert!(!body.contains("innerHTML"));
+    assert!(get(port, "/app.js", "evil.example").starts_with("HTTP/1.1 403"));
     let headers = response.to_ascii_lowercase();
     assert!(headers.contains("content-type: application/json"));
     assert!(headers.contains("cache-control: no-store"));

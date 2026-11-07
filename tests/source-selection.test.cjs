@@ -4,8 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 
 function setup(source = null) {
-  const html = fs.readFileSync('src/index.html', 'utf8');
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const script = fs.readFileSync('src/app.js', 'utf8');
   const elements = {};
   for (const name of ['channels', 'search', 'status', 'source-form', 'source-url', 'source-user', 'source-password', 'source-file', 'source-status']) {
     elements['#' + name] = {value:'', files:[], textContent:'', listeners:{}, addEventListener(type, fn) {this.listeners[type]=fn}, replaceChildren(){}, append(){}};
