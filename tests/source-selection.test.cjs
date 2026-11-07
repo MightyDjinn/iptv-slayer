@@ -9,6 +9,7 @@ function setup(source = null) {
   for (const name of ['channels', 'search', 'status', 'source-form', 'source-url', 'source-user', 'source-password', 'source-file', 'source-status']) {
     elements['#' + name] = {value:'', files:[], textContent:'', listeners:{}, addEventListener(type, fn) {this.listeners[type]=fn}, replaceChildren(){}, append(){}};
   }
+  Object.defineProperty(elements['#source-file'], 'value', {set(value){if(value==='')this.files=[]}, get(){return this.files.length?'selected':''}});
   elements.video = {listeners:{}, addEventListener(type,fn){this.listeners[type]=fn}};
   const calls=[];
   const document={querySelector: selector=>elements[selector], createElement:()=>({addEventListener(){},append(){}})};
@@ -62,6 +63,30 @@ test('ignores a second source submission while the first is being read', async()
   const requests=calls.filter(c=>c.url==='/api/playlist');
   assert.equal(requests.length,1);
   assert.deepEqual(JSON.parse(requests[0].options.body),{content:'#EXTM3U\n'});
+});
+
+test('loads a URL after a successful local file upload', async()=>{
+  const {elements,calls}=setup();
+  elements['#source-file'].files=[{size:8,text:async()=>'#EXTM3U\n'}];
+  await elements['#source-form'].listeners.submit({preventDefault(){}});
+  elements['#source-url'].value='https://example.org/list.m3u';
+  await elements['#source-form'].listeners.submit({preventDefault(){}});
+  const requests=calls.filter(c=>c.url==='/api/playlist');
+  assert.equal(requests.length,2);
+  assert.deepEqual(JSON.parse(requests[1].options.body),{url:'https://example.org/list.m3u'});
+});
+
+test('preserves a new file selected during an upload', async()=>{
+  const {elements}=setup();
+  let finish;
+  const firstFile={size:8,text:()=>new Promise(resolve=>{finish=resolve})};
+  const nextFile={size:8,text:async()=>'#EXTM3U\n'};
+  elements['#source-file'].files=[firstFile];
+  const pending=elements['#source-form'].listeners.submit({preventDefault(){}});
+  elements['#source-file'].files=[nextFile];
+  finish('#EXTM3U\n');
+  await pending;
+  assert.equal(elements['#source-file'].files[0],nextFile);
 });
 
 test('uploads the chosen local file contents', async()=>{
