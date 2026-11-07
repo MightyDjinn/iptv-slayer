@@ -135,6 +135,39 @@ test('preserves a new file selected during an upload', async()=>{
   assert.equal(elements['#source-file'].files[0],nextFile);
 });
 
+test('preserves URL and credentials edited while a local upload is pending', async()=>{
+  const {elements}=setup();
+  let finish;
+  elements['#source-file'].files=[{size:8,text:()=>new Promise(resolve=>{finish=resolve})}];
+  const pending=elements['#source-form'].listeners.submit({preventDefault(){}});
+  for(const [name,value] of [['source-url','https://example.org/new.m3u'],['source-user','alice'],['source-password','secret']]){
+    elements['#'+name].value=value;
+    elements['#'+name].listeners.input();
+  }
+  finish('#EXTM3U\n');
+  await pending;
+  assert.equal(elements['#source-url'].value,'https://example.org/new.m3u');
+  assert.equal(elements['#source-user'].value,'alice');
+  assert.equal(elements['#source-password'].value,'secret');
+});
+
+test('clears stale credentials when only the URL changes during a local upload', async()=>{
+  const {elements,calls}=setup();
+  let finish;
+  elements['#source-url'].value='https://old.example/list.m3u';
+  elements['#source-user'].value='olduser';
+  elements['#source-password'].value='oldsecret';
+  elements['#source-file'].files=[{size:8,text:()=>new Promise(resolve=>{finish=resolve})}];
+  const pending=elements['#source-form'].listeners.submit({preventDefault(){}});
+  elements['#source-url'].value='https://new.example/list.m3u';
+  elements['#source-url'].listeners.input();
+  finish('#EXTM3U\n');
+  await pending;
+  await elements['#source-form'].listeners.submit({preventDefault(){}});
+  const requests=calls.filter(c=>c.url==='/api/playlist');
+  assert.deepEqual(JSON.parse(requests[1].options.body),{url:'https://new.example/list.m3u'});
+});
+
 test('uploads the chosen local file contents', async()=>{
   const {elements,calls}=setup();
   elements['#source-file'].files=[{size:30,text:async()=>'#EXTM3U\n'}];
