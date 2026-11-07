@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-function setup(source = null) {
+function setup(source = null, fetchOverride = null) {
   const script = fs.readFileSync('src/app.js', 'utf8');
   const elements = {};
   for (const name of ['channels', 'search', 'status', 'source-form', 'source-url', 'source-user', 'source-password', 'source-file', 'source-status']) {
@@ -12,11 +12,57 @@ function setup(source = null) {
   Object.defineProperty(elements['#source-file'], 'value', {set(value){if(value==='')this.files=[]}, get(){return this.files.length?'selected':''}});
   elements.video = {listeners:{}, addEventListener(type,fn){this.listeners[type]=fn}};
   const calls=[];
-  const document={querySelector: selector=>elements[selector], createElement:()=>({addEventListener(){},append(){}})};
-  const fetch=async (url,options)=>{calls.push({url,options}); return {ok:true,json:async()=>url==='/api/source'?source:[]}};
+  elements['#channels'].children=[];
+  elements['#channels'].replaceChildren=function(){this.children=[]};
+  elements['#channels'].append=function(child){this.children.push(child)};
+  const document={querySelector: selector=>elements[selector], createElement:()=>({children:[],addEventListener(){},append(child){this.children.push(child)}})};
+  const fetch=async (url,options)=>{calls.push({url,options}); return fetchOverride ? fetchOverride(url,options) : {ok:true,json:async()=>url==='/api/source'?source:[]}};
   vm.runInNewContext(script,{document,fetch,Error,JSON});
   return {elements,calls};
 }
+
+test('preserves initial channels when a replacement fails before they arrive', async()=>{
+  let resolveChannels;
+  const {elements}=setup(null, url=>{
+    if(url==='/api/channels') return new Promise(resolve=>{resolveChannels=resolve});
+    if(url==='/api/playlist') return {ok:false};
+    return {ok:true,json:async()=>null};
+  });
+  elements['#source-url'].value='https://example.org/list.m3u';
+  await elements['#source-form'].listeners.submit({preventDefault(){}});
+  resolveChannels({ok:true,json:async()=>[{name:'Existing channel',url:'https://example.org/stream'}]});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(elements['#channels'].children[0]?.children[0].textContent,'1. Existing channel');
+  assert.match(elements['#source-status'].textContent,/could not load/i);
+});
+
+test('does not replace a successful new playlist with a delayed initial response', async()=>{
+  let resolveChannels;
+  const {elements}=setup(null, url=>{
+    if(url==='/api/channels') return new Promise(resolve=>{resolveChannels=resolve});
+    if(url==='/api/playlist') return {ok:true,json:async()=>[{name:'New channel',url:'https://example.org/new'}]};
+    return {ok:true,json:async()=>null};
+  });
+  elements['#source-url'].value='https://example.org/list.m3u';
+  await elements['#source-form'].listeners.submit({preventDefault(){}});
+  resolveChannels({ok:true,json:async()=>[{name:'Old channel',url:'https://example.org/old'}]});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(elements['#channels'].children[0]?.children[0].textContent,'1. New channel');
+});
+
+test('keeps the replacement error when a delayed initial playlist is empty', async()=>{
+  let resolveChannels;
+  const {elements}=setup(null, url=>{
+    if(url==='/api/channels') return new Promise(resolve=>{resolveChannels=resolve});
+    if(url==='/api/playlist') return {ok:false};
+    return {ok:true,json:async()=>null};
+  });
+  elements['#source-url'].value='https://example.org/list.m3u';
+  await elements['#source-form'].listeners.submit({preventDefault(){}});
+  resolveChannels({ok:true,json:async()=>[]});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.match(elements['#source-status'].textContent,/could not load/i);
+});
 
 test('restores the saved URL and credentials', async()=>{
   const {elements}=setup({url:'https://example.org/list.m3u',username:'alice',password:'secret'});
