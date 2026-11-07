@@ -11,4 +11,4 @@ RUN install -d -o app -g app -m 0700 /var/lib/iptv-slayer
 ENV IPTV_SLAYER_DATA_DIR=/var/lib/iptv-slayer
 USER app
 ENTRYPOINT ["iptv-slayer"]
-CMD ["--help"]
+CMD ["--web", "--foreground"]
