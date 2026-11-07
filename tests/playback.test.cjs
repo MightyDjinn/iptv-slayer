@@ -20,8 +20,8 @@ test('an earlier playback rejection does not overwrite the current channel statu
     { name: 'First', url: 'https://example.com/first' },
     { name: 'Second', url: 'https://example.com/second' },
   ] });
-  const html = fs.readFileSync('src/index.html', 'utf8');
-  vm.runInNewContext(html.match(/<script>([\s\S]*?)<\/script>/)[1], { document, fetch });
+  const script = fs.readFileSync('src/app.js', 'utf8');
+  vm.runInNewContext(script, { document, fetch });
   await new Promise(resolve => setImmediate(resolve));
   list.children[0].children[0].listeners.click();
   list.children[1].children[0].listeners.click();
