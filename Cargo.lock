@@ -539,6 +539,7 @@ dependencies = [
  "anyhow",
  "clap",
  "libc",
+ "percent-encoding",
  "reqwest",
  "serde",
  "serde_json",
