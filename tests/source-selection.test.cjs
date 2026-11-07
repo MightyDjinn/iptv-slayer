@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-function setup() {
+function setup(source = null) {
   const html = fs.readFileSync('src/index.html', 'utf8');
   const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
   const elements = {};
@@ -13,10 +13,18 @@ function setup() {
   elements.video = {listeners:{}, addEventListener(type,fn){this.listeners[type]=fn}};
   const calls=[];
   const document={querySelector: selector=>elements[selector], createElement:()=>({addEventListener(){},append(){}})};
-  const fetch=async (url,options)=>{calls.push({url,options}); return {ok:true,json:async()=>[]}};
+  const fetch=async (url,options)=>{calls.push({url,options}); return {ok:true,json:async()=>url==='/api/source'?source:[]}};
   vm.runInNewContext(script,{document,fetch,Error,JSON});
   return {elements,calls};
 }
+
+test('restores the saved URL and credentials', async()=>{
+  const {elements}=setup({url:'https://example.org/list.m3u',username:'alice',password:'secret'});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(elements['#source-url'].value,'https://example.org/list.m3u');
+  assert.equal(elements['#source-user'].value,'alice');
+  assert.equal(elements['#source-password'].value,'secret');
+});
 
 test('prompts for a playlist when the site starts empty', async()=>{
   const {elements}=setup();

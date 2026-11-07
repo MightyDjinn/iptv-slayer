@@ -1,3 +1,4 @@
+mod storage;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -38,7 +39,7 @@ enum Action {
     /// Play a channel by its 1-based list number using mpv.
     Play { number: usize },
 }
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Channel {
     name: String,
     url: String,
@@ -249,13 +250,23 @@ fn allowed_host(host: &str, port: u16) -> bool {
         || (port == 80 && matches!(host, "127.0.0.1" | "localhost"))
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PlaylistRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     password: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredPlaylist {
+    source: PlaylistRequest,
+    channels: Vec<Channel>,
 }
 
 fn select_playlist(input: PlaylistRequest) -> Result<Vec<Channel>> {
@@ -351,7 +362,7 @@ fn serve(channels: Vec<Channel>, port: u16) -> Result<()> {
     eprintln!("Web UI: http://127.0.0.1:{port}");
     println!("READY");
     std::io::stdout().flush()?;
-    let mut json = serde_json::to_string(&channels)?;
+    let default_json = serde_json::to_string(&channels)?;
     for mut request in server.incoming_requests() {
         let host_ok = request
             .headers()
@@ -363,6 +374,25 @@ fn serve(channels: Vec<Channel>, port: u16) -> Result<()> {
                 .headers()
                 .iter()
                 .any(|h| h.field.equiv("Host") && allowed_host(h.value.as_str(), port));
+        let mut ids = request
+            .headers()
+            .iter()
+            .filter(|h| h.field.equiv("Cookie"))
+            .flat_map(|h| h.value.as_str().split(';'))
+            .filter_map(|part| part.trim().strip_prefix("iptv_client="));
+        let first = ids.next();
+        let client = if ids.next().is_none() {
+            first.filter(|id| storage::valid(id)).map(str::to_owned)
+        } else {
+            None
+        };
+        let mut set_cookie = None;
+        if host_ok && request.method() == &tiny_http::Method::Get && request.url() == "/" {
+            set_cookie = Some(match &client {
+                Some(id) => id.clone(),
+                None => storage::id()?,
+            });
+        }
         let (code, body, content_type) = if !host_ok {
             (403, "Forbidden".to_owned(), "text/plain; charset=utf-8")
         } else if request.method() == &tiny_http::Method::Post && request.url() == "/api/playlist" {
@@ -395,8 +425,15 @@ fn serve(channels: Vec<Channel>, port: u16) -> Result<()> {
                     "Expected application/json".to_owned(),
                     "text/plain; charset=utf-8",
                 )
+            } else if client.is_none() {
+                (
+                    401,
+                    "Open / to initialize a browser session".to_owned(),
+                    "text/plain; charset=utf-8",
+                )
             } else {
-                const MAX_REQUEST: u64 = 16 * 1024 * 1024;
+                // A 10 MiB UTF-8 playlist may expand sixfold when JSON-escaped.
+                const MAX_REQUEST: u64 = 64 * 1024 * 1024;
                 let mut body = Vec::new();
                 let read = request
                     .as_reader()
@@ -411,11 +448,24 @@ fn serve(channels: Vec<Channel>, port: u16) -> Result<()> {
                 } else {
                     match serde_json::from_slice::<PlaylistRequest>(&body)
                         .ok()
-                        .and_then(|input| select_playlist(input).ok())
-                    {
-                        Some(channels) => {
-                            json = serde_json::to_string(&channels)?;
-                            (200, json.clone(), "application/json")
+                        .and_then(|input| {
+                            select_playlist(input.clone())
+                                .ok()
+                                .map(|channels| (input, channels))
+                        }) {
+                        Some((source, channels)) => {
+                            let json = serde_json::to_string(&channels)?;
+                            let state =
+                                serde_json::to_string(&StoredPlaylist { source, channels })?;
+                            if storage::write(client.as_deref().unwrap(), &state).is_ok() {
+                                (200, json, "application/json")
+                            } else {
+                                (
+                                    500,
+                                    "{\"error\":\"Unable to save playlist\"}".to_owned(),
+                                    "application/json",
+                                )
+                            }
                         }
                         None => (
                             400,
@@ -438,15 +488,116 @@ fn serve(channels: Vec<Channel>, port: u16) -> Result<()> {
                     include_str!("index.html").to_owned(),
                     "text/html; charset=utf-8",
                 ),
-                "/api/channels" => (200, json.clone(), "application/json"),
+                "/api/source" => {
+                    let origins: Vec<_> = request
+                        .headers()
+                        .iter()
+                        .filter(|h| h.field.equiv("Origin"))
+                        .collect();
+                    let host = request
+                        .headers()
+                        .iter()
+                        .find(|h| h.field.equiv("Host"))
+                        .unwrap()
+                        .value
+                        .as_str();
+                    let fetch_ok = request
+                        .headers()
+                        .iter()
+                        .filter(|h| h.field.equiv("Sec-Fetch-Site"))
+                        .all(|h| matches!(h.value.as_str(), "same-origin" | "none"));
+                    if origins.len() > 1
+                        || origins
+                            .first()
+                            .is_some_and(|h| h.value.as_str() != format!("http://{host}"))
+                        || !fetch_ok
+                    {
+                        (403, "Forbidden".to_owned(), "text/plain; charset=utf-8")
+                    } else if let Some(id) = client.as_deref() {
+                        match storage::read(id) {
+                            Ok(json) => match serde_json::from_str::<StoredPlaylist>(&json) {
+                                Ok(state) => (
+                                    200,
+                                    serde_json::to_string(&state.source)?,
+                                    "application/json",
+                                ),
+                                Err(_) if serde_json::from_str::<Vec<Channel>>(&json).is_ok() => {
+                                    (200, "null".to_owned(), "application/json")
+                                }
+                                Err(_) => (
+                                    500,
+                                    "{\"error\":\"Unable to read playlist\"}".to_owned(),
+                                    "application/json",
+                                ),
+                            },
+                            Err(e)
+                                if e.downcast_ref::<std::io::Error>()
+                                    .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+                            {
+                                (200, "null".to_owned(), "application/json")
+                            }
+                            Err(_) => (
+                                500,
+                                "{\"error\":\"Unable to read playlist\"}".to_owned(),
+                                "application/json",
+                            ),
+                        }
+                    } else {
+                        (
+                            401,
+                            "Open / to initialize a browser session".to_owned(),
+                            "text/plain; charset=utf-8",
+                        )
+                    }
+                }
+                "/api/channels" => match client.as_deref() {
+                    Some(id) => match storage::read(id) {
+                        Ok(json) if serde_json::from_str::<StoredPlaylist>(&json).is_ok() => {
+                            let state: StoredPlaylist = serde_json::from_str(&json)?;
+                            (
+                                200,
+                                serde_json::to_string(&state.channels)?,
+                                "application/json",
+                            )
+                        }
+                        Ok(json) if serde_json::from_str::<Vec<Channel>>(&json).is_ok() => {
+                            (200, json, "application/json")
+                        }
+                        Err(e)
+                            if e.downcast_ref::<std::io::Error>()
+                                .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+                        {
+                            (200, default_json.clone(), "application/json")
+                        }
+                        _ => (
+                            500,
+                            "{\"error\":\"Unable to read playlist\"}".to_owned(),
+                            "application/json",
+                        ),
+                    },
+                    None => (
+                        401,
+                        "Open / to initialize a browser session".to_owned(),
+                        "text/plain; charset=utf-8",
+                    ),
+                },
                 _ => (404, "Not found".to_owned(), "text/plain; charset=utf-8"),
             }
         };
-        let response = tiny_http::Response::from_string(body).with_status_code(code)
+        let mut response = tiny_http::Response::from_string(body).with_status_code(code)
             .with_header(tiny_http::Header::from_bytes("Content-Type", content_type).unwrap())
             .with_header(tiny_http::Header::from_bytes("Cache-Control", "no-store").unwrap())
             .with_header(tiny_http::Header::from_bytes("X-Content-Type-Options", "nosniff").unwrap())
             .with_header(tiny_http::Header::from_bytes("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; media-src http: https:; base-uri 'none'; frame-ancestors 'none'").unwrap());
+        if let Some(id) = set_cookie {
+            response = response.with_header(
+                tiny_http::Header::from_bytes(
+                    "Set-Cookie",
+                    format!("iptv_client={id}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000"),
+                )
+                .unwrap(),
+            );
+        }
         let _ = request.respond(response);
     }
     Ok(())

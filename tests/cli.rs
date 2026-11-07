@@ -1,5 +1,26 @@
 use std::{fs, process::Command};
 
+fn browser_cookie(port: u16) -> String {
+    let r = reqwest::blocking::get(format!("http://127.0.0.1:{port}/")).unwrap();
+    r.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned()
+}
+fn browser_get(port: u16) -> String {
+    let cookie = browser_cookie(port);
+    reqwest::blocking::Client::new()
+        .get(format!("http://127.0.0.1:{port}/api/channels"))
+        .header("Cookie", cookie)
+        .send()
+        .unwrap()
+        .text()
+        .unwrap()
+}
+
 #[test]
 fn lists_and_searches_playlist() {
     let dir = tempfile::tempdir().unwrap();
@@ -88,12 +109,13 @@ fn web_serves_channels_and_rejects_untrusted_hosts() {
         .unwrap();
     assert_eq!(ready.trim(), "READY");
     fn request(port: u16, method: &str, path: &str, host: &str) -> String {
+        let cookie = browser_cookie(port);
         let mut conn = TcpStream::connect(("127.0.0.1", port)).unwrap();
         conn.set_read_timeout(Some(std::time::Duration::from_secs(5)))
             .unwrap();
         write!(
             conn,
-            "{method} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+            "{method} {path} HTTP/1.1\r\nHost: {host}\r\nCookie: {cookie}\r\nConnection: close\r\n\r\n"
         )
         .unwrap();
         let mut response = String::new();
@@ -170,10 +192,11 @@ fn http_playlist_resolves_relative_urls() {
         .unwrap();
     server.join().unwrap();
     assert_eq!(ready.trim(), "READY");
+    let cookie = browser_cookie(web_port);
     let mut stream = TcpStream::connect(("127.0.0.1", web_port)).unwrap();
     write!(
         stream,
-        "GET /api/channels HTTP/1.1\r\nHost: 127.0.0.1:{web_port}\r\nConnection: close\r\n\r\n"
+        "GET /api/channels HTTP/1.1\r\nHost: 127.0.0.1:{web_port}\r\nCookie: {cookie}\r\nConnection: close\r\n\r\n"
     )
     .unwrap();
     let mut response = String::new();
@@ -236,13 +259,14 @@ fn detached_web_starts_and_serves_playlist() {
         .unwrap();
     let _guard = Process(pid);
     assert!(stdout.contains(&format!("http://127.0.0.1:{port}")));
+    let cookie = browser_cookie(port);
     let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(5)))
         .unwrap();
     write!(
         stream,
-        "GET /api/channels HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+        "GET /api/channels HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nCookie: {cookie}\r\nConnection: close\r\n\r\n"
     )
     .unwrap();
     let mut response = String::new();
@@ -313,10 +337,7 @@ fn web_loads_playlist_from_xdg_config_when_not_passed() {
         .read_line(&mut ready)
         .unwrap();
     assert_eq!(ready.trim(), "READY");
-    let response = reqwest::blocking::get(format!("http://127.0.0.1:{port}/api/channels"))
-        .unwrap()
-        .text()
-        .unwrap();
+    let response = browser_get(port);
     child.kill().unwrap();
     child.wait().unwrap();
     assert!(response.contains("Config channel"), "{response}");
@@ -356,10 +377,7 @@ fn web_loads_playlist_from_non_utf8_xdg_path() {
         .read_line(&mut ready)
         .unwrap();
     assert_eq!(ready.trim(), "READY");
-    let response = reqwest::blocking::get(format!("http://127.0.0.1:{port}/api/channels"))
-        .unwrap()
-        .text()
-        .unwrap();
+    let response = browser_get(port);
     child.kill().unwrap();
     child.wait().unwrap();
     assert!(response.contains("Config channel"), "{response}");
@@ -419,7 +437,13 @@ fn web_replaces_playlist_from_content() {
         .unwrap();
     assert_eq!(line.trim(), "READY");
     let origin = format!("http://127.0.0.1:{port}");
-    let client = reqwest::blocking::Client::new();
+    let cookie = browser_cookie(port);
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(reqwest::header::COOKIE, cookie.parse().unwrap());
+    let client = reqwest::blocking::Client::builder()
+        .default_headers(headers)
+        .build()
+        .unwrap();
     let response = client
         .post(format!("{origin}/api/playlist"))
         .header("Origin", &origin)
@@ -438,7 +462,7 @@ fn web_replaces_playlist_from_content() {
         .unwrap()
         .contains("New"));
     let endpoint = format!("{origin}/api/playlist");
-    let oversized = format!("{{\"content\":\"{}\"}}", "x".repeat(16 * 1024 * 1024));
+    let oversized = format!("{{\"content\":\"{}\"}}", "x".repeat(64 * 1024 * 1024));
     assert_eq!(
         client
             .post(&endpoint)
@@ -613,9 +637,6 @@ fn detached_web_starts_without_playlist() {
         .parse()
         .unwrap();
     let _guard = Process(pid);
-    let text = reqwest::blocking::get(format!("http://127.0.0.1:{port}/api/channels"))
-        .unwrap()
-        .text()
-        .unwrap();
+    let text = browser_get(port);
     assert_eq!(text, "[]");
 }
