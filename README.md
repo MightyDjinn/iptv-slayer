@@ -32,7 +32,7 @@ docker compose logs -f
 docker compose down
 ```
 
-In the browser, choose a local M3U file or enter an HTTP(S) playlist URL. Optional username and password fields use HTTP Basic authentication for the playlist request; use HTTPS to protect credentials. Loading a different source replaces the current in-memory channel list. No playlist is bundled or persisted, so load it again after restarting.
+In the browser, choose a local M3U file or enter an HTTP(S) playlist URL. If no `--playlist` is provided, web mode also checks `$XDG_CONFIG_HOME/iptv-slayer/channels.m3u` (default `~/.config/iptv-slayer/channels.m3u`); otherwise it prompts for a source. Docker uses the container's config path unless a host directory is mounted. Optional username and password fields use HTTP Basic authentication for the playlist request; use HTTPS to protect credentials. Loading a different source replaces the current in-memory channel list. No playlist is bundled or persisted, so load it again after restarting.
 
 The included `compose.yaml` uses Linux host networking because the app binds only to loopback; ordinary `ports:` mapping cannot reach container loopback. Docker Desktop host-network support varies by platform and settings. Host networking shares the host network namespace; do not use untrusted playlists. The foreground command keeps the container running. The image has no mpv or graphical environment, so use the host binary for CLI playback.
 

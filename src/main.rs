@@ -112,19 +112,26 @@ fn load(source: &str) -> Result<Vec<Channel>> {
         base = Some(response.url().clone());
         Box::new(response)
     } else {
-        let file = File::open(source).context("could not open playlist")?;
-        if file
-            .metadata()
-            .context("could not inspect playlist")?
-            .is_dir()
-        {
-            bail!("playlist path is a directory, not a file; replace it with your M3U playlist (Docker may have created the directory when the file was missing)");
-        }
-        Box::new(file)
+        return load_local_playlist(std::path::Path::new(source));
     };
+    read_playlist(&mut reader, base.as_ref())
+}
+
+fn load_local_playlist(path: &std::path::Path) -> Result<Vec<Channel>> {
+    let mut file = File::open(path).context("could not open playlist")?;
+    if file
+        .metadata()
+        .context("could not inspect playlist")?
+        .is_dir()
+    {
+        bail!("playlist path is a directory, not a file; replace it with your M3U playlist (Docker may have created the directory when the file was missing)");
+    }
+    read_playlist(&mut file, None)
+}
+
+fn read_playlist(reader: &mut dyn Read, base: Option<&Url>) -> Result<Vec<Channel>> {
     let mut bytes = Vec::new();
     reader
-        .by_ref()
         .take(MAX_PLAYLIST + 1)
         .read_to_end(&mut bytes)
         .context("could not read playlist")?;
@@ -132,7 +139,7 @@ fn load(source: &str) -> Result<Vec<Channel>> {
         bail!("playlist exceeds 10 MiB");
     }
     let text = String::from_utf8(bytes).context("playlist is not UTF-8")?;
-    Ok(parse_playlist(&text, base.as_ref()))
+    Ok(parse_playlist(&text, base))
 }
 fn main() -> Result<()> {
     let args = Args::parse();
@@ -181,7 +188,28 @@ fn main() -> Result<()> {
     }
     let channels = match &args.playlist {
         Some(playlist) => load(playlist)?,
-        None if args.web => Vec::new(),
+        None if args.web => {
+            let config = std::env::var_os("XDG_CONFIG_HOME")
+                .filter(|p| std::path::Path::new(p).is_absolute())
+                .map(std::path::PathBuf::from)
+                .or_else(|| {
+                    std::env::var_os("HOME")
+                        .map(|home| std::path::PathBuf::from(home).join(".config"))
+                });
+            let playlist = config.map(|dir| dir.join("iptv-slayer/channels.m3u"));
+            match playlist.filter(|path| path.exists()) {
+                Some(path) => {
+                    match load_local_playlist(&path) {
+                        Ok(channels) => channels,
+                        Err(_) => {
+                            eprintln!("Could not load the default playlist; choose a playlist in the web UI.");
+                            Vec::new()
+                        }
+                    }
+                }
+                None => Vec::new(),
+            }
+        }
         None => bail!("--playlist is required unless using --web"),
     };
     if args.web {
