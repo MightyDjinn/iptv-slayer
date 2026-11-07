@@ -3,4 +3,9 @@ services:
   iptv-slayer:
     build: .
     network_mode: host
+    volumes:
+      - iptv-slayer-data:/var/lib/iptv-slayer
     command: ["--web", "--foreground"]
+
+volumes:
+  iptv-slayer-data:

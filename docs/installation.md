@@ -25,7 +25,9 @@ docker compose logs -f
 docker compose down
 ```
 
-In the browser, select a local M3U file or enter an HTTP(S) playlist URL. Optional username and password fields use HTTP Basic authentication for fetching the playlist; prefer HTTPS. Playlists and credentials are not saved across restarts. No channels are bundled.
+In the browser, select a local M3U file or enter an HTTP(S) playlist URL. Optional username and password fields use HTTP Basic authentication for fetching the playlist; prefer HTTPS. The source, credentials, and playlist are saved for this browser across restarts in the `iptv-slayer-data` Docker volume. Credentials are stored unencrypted with owner-only filesystem permissions. No channels are bundled. `docker compose down` retains the volume; `docker compose down -v` deletes its contents.
+
+If an older Compose setup reports `Is a directory`, run `docker compose config` and check for an old `--playlist /data/channels.m3u` command or bind mount, including in override files. The current Compose file needs neither. Check any host `channels.m3u` directory's contents before moving it; remove it only if known to be empty. Rebuild and recreate with `docker compose up -d --build --force-recreate`. An explicitly supplied `--playlist` still reports an error if it is not a readable file.
 
 Ctrl-C exits the log viewer; `down` stops and removes the container. Edit the command in `compose.yaml` to change the port. The container runs unprivileged, contains no mpv, and uses host networking: `ports:` mapping alone cannot expose its loopback listener. Host networking shares the host namespace and is not suitable for untrusted playlists. Docker Desktop support varies; use the source build if unavailable.
 
