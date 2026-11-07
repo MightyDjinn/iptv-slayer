@@ -286,6 +286,86 @@ fn detached_web_reports_missing_playlist() {
 }
 
 #[test]
+fn web_loads_playlist_from_xdg_config_when_not_passed() {
+    use std::io::{BufRead, BufReader};
+    use std::net::TcpListener;
+    use std::process::Stdio;
+    let config = tempfile::tempdir().unwrap();
+    let app = config.path().join("iptv-slayer");
+    fs::create_dir(&app).unwrap();
+    fs::write(
+        app.join("channels.m3u"),
+        "#EXTM3U\n#EXTINF:-1,Config channel\nhttps://example.com/live\n",
+    )
+    .unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_iptv-slayer"))
+        .env("XDG_CONFIG_HOME", config.path())
+        .args(["--web", "--foreground", "--port", &port.to_string()])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut ready = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut ready)
+        .unwrap();
+    assert_eq!(ready.trim(), "READY");
+    let response = reqwest::blocking::get(format!("http://127.0.0.1:{port}/api/channels"))
+        .unwrap()
+        .text()
+        .unwrap();
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert!(response.contains("Config channel"), "{response}");
+}
+
+#[cfg(unix)]
+#[test]
+fn web_loads_playlist_from_non_utf8_xdg_path() {
+    use std::io::{BufRead, BufReader};
+    use std::net::TcpListener;
+    use std::process::Stdio;
+    let config = tempfile::tempdir().unwrap();
+    use std::os::unix::ffi::OsStringExt;
+    let base = config
+        .path()
+        .join(std::ffi::OsString::from_vec(b"config-\xff".to_vec()));
+    fs::create_dir(&base).unwrap();
+    let app = base.join("iptv-slayer");
+    fs::create_dir(&app).unwrap();
+    fs::write(
+        app.join("channels.m3u"),
+        "#EXTM3U\n#EXTINF:-1,Config channel\nhttps://example.com/live\n",
+    )
+    .unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_iptv-slayer"))
+        .env("XDG_CONFIG_HOME", &base)
+        .args(["--web", "--foreground", "--port", &port.to_string()])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut ready = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut ready)
+        .unwrap();
+    assert_eq!(ready.trim(), "READY");
+    let response = reqwest::blocking::get(format!("http://127.0.0.1:{port}/api/channels"))
+        .unwrap()
+        .text()
+        .unwrap();
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert!(response.contains("Config channel"), "{response}");
+}
+
+#[test]
 fn web_starts_without_initial_playlist() {
     use std::io::{BufRead, BufReader};
     use std::net::TcpListener;

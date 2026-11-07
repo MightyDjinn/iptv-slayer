@@ -18,6 +18,12 @@ function setup() {
   return {elements,calls};
 }
 
+test('prompts for a playlist when the site starts empty', async()=>{
+  const {elements}=setup();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.match(elements['#source-status'].textContent,/choose.*playlist/i);
+});
+
 test('submits authenticated URL without putting credentials in URL', async()=>{
   const {elements,calls}=setup();
   elements['#source-url'].value='https://example.org/list.m3u';
