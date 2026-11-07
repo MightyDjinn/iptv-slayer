@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     fs::File,
     io::{BufRead, BufReader, Read, Write},
@@ -15,7 +15,7 @@ const MAX_PLAYLIST: u64 = 10 * 1024 * 1024;
 struct Args {
     /// Local path or HTTP(S) playlist URL. URLs may contain credentials.
     #[arg(long)]
-    playlist: String,
+    playlist: Option<String>,
     /// Start the local web UI as a background process.
     #[arg(long)]
     web: bool,
@@ -112,7 +112,15 @@ fn load(source: &str) -> Result<Vec<Channel>> {
         base = Some(response.url().clone());
         Box::new(response)
     } else {
-        Box::new(File::open(source).context("could not open playlist")?)
+        let file = File::open(source).context("could not open playlist")?;
+        if file
+            .metadata()
+            .context("could not inspect playlist")?
+            .is_dir()
+        {
+            bail!("playlist path is a directory, not a file; replace it with your M3U playlist (Docker may have created the directory when the file was missing)");
+        }
+        Box::new(file)
     };
     let mut bytes = Vec::new();
     reader
@@ -147,15 +155,11 @@ fn main() -> Result<()> {
                 });
             }
         }
+        if let Some(playlist) = &args.playlist {
+            command.args(["--playlist", playlist]);
+        }
         let mut child = command
-            .args([
-                "--playlist",
-                &args.playlist,
-                "--web",
-                "--foreground",
-                "--port",
-                &args.port.to_string(),
-            ])
+            .args(["--web", "--foreground", "--port", &args.port.to_string()])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -175,7 +179,11 @@ fn main() -> Result<()> {
         );
         return Ok(());
     }
-    let channels = load(&args.playlist)?;
+    let channels = match &args.playlist {
+        Some(playlist) => load(playlist)?,
+        None if args.web => Vec::new(),
+        None => bail!("--playlist is required unless using --web"),
+    };
     if args.web {
         return serve(channels, args.port);
     }
@@ -213,6 +221,88 @@ fn allowed_host(host: &str, port: u16) -> bool {
         || (port == 80 && matches!(host, "127.0.0.1" | "localhost"))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PlaylistRequest {
+    content: Option<String>,
+    url: Option<String>,
+    username: Option<String>,
+    password: Option<String>,
+}
+
+fn select_playlist(input: PlaylistRequest) -> Result<Vec<Channel>> {
+    let channels = match (input.content, input.url) {
+        (Some(content), None) if input.username.is_none() && input.password.is_none() => {
+            if content.len() as u64 > MAX_PLAYLIST {
+                bail!("playlist too large");
+            }
+            parse_playlist(&content, None)
+        }
+        (None, Some(source)) => {
+            let mut url = Url::parse(&source).map_err(|_| anyhow::anyhow!("invalid URL"))?;
+            if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+                bail!("invalid URL");
+            }
+            let embedded_user = url.username().to_owned();
+            let embedded_password = url.password().map(str::to_owned);
+            url.set_username("")
+                .map_err(|_| anyhow::anyhow!("invalid URL"))?;
+            url.set_password(None)
+                .map_err(|_| anyhow::anyhow!("invalid URL"))?;
+            if (input.username.is_some() || input.password.is_some())
+                && (!embedded_user.is_empty() || embedded_password.is_some())
+            {
+                bail!("ambiguous credentials");
+            }
+            if input.password.is_some() && input.username.is_none() {
+                bail!("missing username");
+            }
+            let username = input
+                .username
+                .or_else(|| (!embedded_user.is_empty()).then_some(embedded_user));
+            let password = input.password.or(embedded_password);
+            let client = reqwest::blocking::Client::builder()
+                .timeout(Duration::from_secs(20))
+                .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                    if attempt.previous().len() >= 5
+                        || attempt
+                            .previous()
+                            .first()
+                            .is_some_and(|first| first.origin() != attempt.url().origin())
+                    {
+                        attempt.stop()
+                    } else {
+                        attempt.follow()
+                    }
+                }))
+                .build()?;
+            let mut request = client.get(url);
+            if let Some(username) = username {
+                request = request.basic_auth(username, password);
+            }
+            let mut response = request.send().map_err(|e| e.without_url())?;
+            if !response.status().is_success() {
+                bail!("playlist request failed");
+            }
+            let base = response.url().clone();
+            let mut bytes = Vec::new();
+            response
+                .by_ref()
+                .take(MAX_PLAYLIST + 1)
+                .read_to_end(&mut bytes)?;
+            if bytes.len() as u64 > MAX_PLAYLIST {
+                bail!("playlist too large");
+            }
+            parse_playlist(&String::from_utf8(bytes)?, Some(&base))
+        }
+        _ => bail!("invalid selection"),
+    };
+    if channels.is_empty() {
+        bail!("playlist has no playable channels");
+    }
+    Ok(channels)
+}
+
 fn serve(channels: Vec<Channel>, port: u16) -> Result<()> {
     if port == 0 {
         bail!("port must be nonzero");
@@ -222,8 +312,8 @@ fn serve(channels: Vec<Channel>, port: u16) -> Result<()> {
     eprintln!("Web UI: http://127.0.0.1:{port}");
     println!("READY");
     std::io::stdout().flush()?;
-    let json = serde_json::to_string(&channels)?;
-    for request in server.incoming_requests() {
+    let mut json = serde_json::to_string(&channels)?;
+    for mut request in server.incoming_requests() {
         let host_ok = request
             .headers()
             .iter()
@@ -236,6 +326,66 @@ fn serve(channels: Vec<Channel>, port: u16) -> Result<()> {
                 .any(|h| h.field.equiv("Host") && allowed_host(h.value.as_str(), port));
         let (code, body, content_type) = if !host_ok {
             (403, "Forbidden".to_owned(), "text/plain; charset=utf-8")
+        } else if request.method() == &tiny_http::Method::Post && request.url() == "/api/playlist" {
+            let headers = request.headers();
+            let host = headers
+                .iter()
+                .find(|h| h.field.equiv("Host"))
+                .unwrap()
+                .value
+                .as_str();
+            let origins: Vec<_> = headers.iter().filter(|h| h.field.equiv("Origin")).collect();
+            let types: Vec<_> = headers
+                .iter()
+                .filter(|h| h.field.equiv("Content-Type"))
+                .collect();
+            if origins.len() != 1 || origins[0].value.as_str() != format!("http://{host}") {
+                (403, "Forbidden".to_owned(), "text/plain; charset=utf-8")
+            } else if types.len() != 1
+                || !types[0]
+                    .value
+                    .as_str()
+                    .split(';')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .eq_ignore_ascii_case("application/json")
+            {
+                (
+                    415,
+                    "Expected application/json".to_owned(),
+                    "text/plain; charset=utf-8",
+                )
+            } else {
+                const MAX_REQUEST: u64 = 16 * 1024 * 1024;
+                let mut body = Vec::new();
+                let read = request
+                    .as_reader()
+                    .take(MAX_REQUEST + 1)
+                    .read_to_end(&mut body);
+                if read.is_err() || body.len() as u64 > MAX_REQUEST {
+                    (
+                        413,
+                        "Request too large".to_owned(),
+                        "text/plain; charset=utf-8",
+                    )
+                } else {
+                    match serde_json::from_slice::<PlaylistRequest>(&body)
+                        .ok()
+                        .and_then(|input| select_playlist(input).ok())
+                    {
+                        Some(channels) => {
+                            json = serde_json::to_string(&channels)?;
+                            (200, json.clone(), "application/json")
+                        }
+                        None => (
+                            400,
+                            "{\"error\":\"Unable to load playlist\"}".to_owned(),
+                            "application/json",
+                        ),
+                    }
+                }
+            }
         } else if request.method() != &tiny_http::Method::Get {
             (
                 405,

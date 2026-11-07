@@ -15,7 +15,7 @@ The executable is `target/release/iptv-slayer`. Supply your own legal UTF-8 M3U 
 
 ## Docker Compose
 
-On Linux Docker Engine, place your playlist at `channels.m3u`, readable by container UID 10001. The included Compose file builds the image, mounts the playlist read-only and runs the web UI in the foreground:
+On Linux Docker Engine, the included Compose file builds the image and runs the web UI in the foreground. No playlist file or mount is required at startup:
 
 ```sh
 docker compose build
@@ -25,7 +25,9 @@ docker compose logs -f
 docker compose down
 ```
 
-Ctrl-C exits the log viewer; `down` stops and removes the container. Edit the volume and command in `compose.yaml` to change the playlist or port. The container runs unprivileged, contains no mpv, and uses host networking: `ports:` mapping alone cannot expose its loopback listener. Host networking shares the host namespace and is not suitable for untrusted playlists. Docker Desktop support varies; use the source build if unavailable.
+In the browser, select a local M3U file or enter an HTTP(S) playlist URL. Optional username and password fields use HTTP Basic authentication for fetching the playlist; prefer HTTPS. Playlists and credentials are not saved across restarts. No channels are bundled.
+
+Ctrl-C exits the log viewer; `down` stops and removes the container. Edit the command in `compose.yaml` to change the port. The container runs unprivileged, contains no mpv, and uses host networking: `ports:` mapping alone cannot expose its loopback listener. Host networking shares the host namespace and is not suitable for untrusted playlists. Docker Desktop support varies; use the source build if unavailable.
 
 ## Docker CLI
 

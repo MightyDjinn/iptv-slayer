@@ -18,11 +18,11 @@ cargo build --release --locked
 ./target/release/iptv-slayer --playlist ./channels.m3u --web --foreground
 ```
 
-Open http://127.0.0.1:8080; stop the foreground server with Ctrl-C. Replace the file with an HTTP(S) playlist URL if desired. Channel numbers are 1-based and retain their original values after filtering; `list` is the default. `play` launches mpv. Use `--port 8081` to change the web port. Without `--foreground`, `--web` starts a detached process and prints its PID; stop it with `kill PID`. The playlist is loaded once at startup; restart to refresh it.
+Open http://127.0.0.1:8080; stop the foreground server with Ctrl-C. Replace the file with an HTTP(S) playlist URL if desired. Channel numbers are 1-based and retain their original values after filtering; `list` is the default. `play` launches mpv. Use `--port 8081` to change the web port. Without `--foreground`, `--web` starts a detached process and prints its PID; stop it with `kill PID`. The optional startup playlist can be replaced in the browser without restarting.
 
 ## Docker Compose (Linux)
 
-Install Docker Engine and the Compose plugin. Put a UTF-8 playlist at `./channels.m3u`, readable by UID 10001, then:
+Install Docker Engine and the Compose plugin, then:
 
 ```sh
 docker compose build
@@ -31,6 +31,8 @@ docker compose logs -f
 # Open http://127.0.0.1:8080; Ctrl-C exits the log viewer.
 docker compose down
 ```
+
+In the browser, choose a local M3U file or enter an HTTP(S) playlist URL. Optional username and password fields use HTTP Basic authentication for the playlist request; use HTTPS to protect credentials. Loading a different source replaces the current in-memory channel list. No playlist is bundled or persisted, so load it again after restarting.
 
 The included `compose.yaml` uses Linux host networking because the app binds only to loopback; ordinary `ports:` mapping cannot reach container loopback. Docker Desktop host-network support varies by platform and settings. Host networking shares the host network namespace; do not use untrusted playlists. The foreground command keeps the container running. The image has no mpv or graphical environment, so use the host binary for CLI playback.
 

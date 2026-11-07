@@ -14,6 +14,7 @@ test('an earlier playback rejection does not overwrite the current channel statu
   const list = element(), search = element(), video = element(), status = element();
   video.play = () => new Promise((resolve, reject) => pending.push({ resolve, reject }));
   const elements = { '#channels': list, '#search': search, video, '#status': status };
+  for (const selector of ['#source-form', '#source-url', '#source-user', '#source-password', '#source-file', '#source-status']) elements[selector] = element();
   const document = { querySelector: selector => elements[selector], createElement: element };
   const fetch = async () => ({ ok: true, json: async () => [
     { name: 'First', url: 'https://example.com/first' },
