@@ -25,7 +25,6 @@ Open http://127.0.0.1:8080; stop the foreground server with Ctrl-C. Replace the 
 Install Docker Engine and the Compose plugin, then:
 
 ```sh
-docker compose build
 docker compose up -d
 docker compose logs -f
 # Open http://127.0.0.1:8080; Ctrl-C exits the log viewer.
@@ -34,15 +33,20 @@ docker compose down
 
 In the browser, choose a local M3U file or enter an HTTP(S) playlist URL. If no `--playlist` is provided, web mode also checks `$XDG_CONFIG_HOME/iptv-slayer/channels.m3u` (default `~/.config/iptv-slayer/channels.m3u`); otherwise it prompts for a source. Docker uses the container's config path unless a host directory is mounted. Optional username and password fields use HTTP Basic authentication for the playlist request; use HTTPS to protect credentials. A successful selection is saved separately for this browser and restored after restart. Compose stores this data in the `iptv-slayer-data` named volume. No playlist is bundled. Source credentials are stored unencrypted with owner-only filesystem permissions; protect the host and backups. See [security details](docs/playlists-security.md).
 
+Compose rebuilds from the current checkout on each `up` (using the build cache), avoiding stale locally tagged images. This adds build-check time and requires a Compose version supporting `pull_policy: build`; `--no-build` bypasses the safeguard. If upgrading from an older checkout and logs still say `--playlist` is required, check for old Compose overrides and run `docker compose up -d --build --force-recreate` from the updated checkout; this retains the named volume.
+
 The included `compose.yaml` uses Linux host networking because the app binds only to loopback; ordinary `ports:` mapping cannot reach container loopback. Docker Desktop host-network support varies by platform and settings. Host networking shares the host network namespace; do not use untrusted playlists. The foreground command keeps the container running. The image has no mpv or graphical environment, so use the host binary for CLI playback.
 
 To run a one-shot list or use Docker without Compose:
 
 ```sh
 docker build -t iptv-slayer .
+docker run --rm --network host iptv-slayer
 docker run --rm -v "$PWD/channels.m3u:/data/channels.m3u:ro" iptv-slayer --playlist /data/channels.m3u list
 docker run --rm --network host -v "$PWD/channels.m3u:/data/channels.m3u:ro" iptv-slayer --playlist /data/channels.m3u --web --foreground
 ```
+
+The command-free `docker run` starts the web UI in the foreground; Ctrl-C stops it. Supplying arguments replaces that default. Add a volume if you want browser data to survive container removal.
 
 ## Browser and security
 
@@ -58,6 +62,8 @@ See the [full documentation](docs/index.md), including [installation](docs/insta
 cargo fmt --all -- --check
 cargo test --locked --all-targets
 cargo clippy --locked --all-targets -- -D warnings
+# Optional Linux Docker integration test (builds an image; requires Docker Compose)
+./tests/docker-integration.py
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r docs/requirements.txt

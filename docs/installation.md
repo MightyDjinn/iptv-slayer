@@ -18,7 +18,6 @@ The executable is `target/release/iptv-slayer`. Supply your own legal UTF-8 M3U 
 On Linux Docker Engine, the included Compose file builds the image and runs the web UI in the foreground. No playlist file or mount is required at startup:
 
 ```sh
-docker compose build
 docker compose up -d
 docker compose logs -f
 # Open http://127.0.0.1:8080
@@ -29,14 +28,17 @@ In the browser, select a local M3U file or enter an HTTP(S) playlist URL. Option
 
 If an older Compose setup reports `Is a directory`, run `docker compose config` and check for an old `--playlist /data/channels.m3u` command or bind mount, including in override files. The current Compose file needs neither. Check any host `channels.m3u` directory's contents before moving it; remove it only if known to be empty. Rebuild and recreate with `docker compose up -d --build --force-recreate`. An explicitly supplied `--playlist` still reports an error if it is not a readable file.
 
+Compose uses `pull_policy: build` to rebuild from the current checkout on every `up`, even if a same-name image is already cached. Docker's build cache is still used, but build checks take time; a Compose version supporting this policy is required, and `--no-build` bypasses it. If logs from an older setup say `--playlist` is required, check the checkout and any Compose override files, then run `docker compose up -d --build --force-recreate`. This retains the data volume; do not add `-v` if you need its data.
+
 Ctrl-C exits the log viewer; `down` stops and removes the container. Edit the command in `compose.yaml` to change the port. The container runs unprivileged, contains no mpv, and uses host networking: `ports:` mapping alone cannot expose its loopback listener. Host networking shares the host namespace and is not suitable for untrusted playlists. Docker Desktop support varies; use the source build if unavailable.
 
 ## Docker CLI
 
 ```sh
 docker build -t iptv-slayer .
+docker run --rm --network host iptv-slayer
 docker run --rm -v "$PWD/channels.m3u:/data/channels.m3u:ro" iptv-slayer --playlist /data/channels.m3u list
 docker run --rm --network host -v "$PWD/channels.m3u:/data/channels.m3u:ro" iptv-slayer --playlist /data/channels.m3u --web --foreground
 ```
 
-Stop the foreground container with Ctrl-C.
+With no arguments the image starts the foreground web UI; stop it with Ctrl-C. Explicit arguments replace that default. Mount a data volume to retain browser data when using `--rm`.

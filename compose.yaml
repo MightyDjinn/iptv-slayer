@@ -2,6 +2,7 @@
 services:
   iptv-slayer:
     build: .
+    pull_policy: build
     network_mode: host
     volumes:
       - iptv-slayer-data:/var/lib/iptv-slayer
