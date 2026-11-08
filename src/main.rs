@@ -314,7 +314,7 @@ fn select_playlist(input: PlaylistRequest) -> Result<Vec<Channel>> {
             let client = reqwest::blocking::Client::builder()
                 .timeout(Duration::from_secs(20))
                 .redirect(reqwest::redirect::Policy::custom(|attempt| {
-                    if attempt.previous().len() >= 5
+                    if attempt.previous().len() > 5
                         || attempt
                             .previous()
                             .first()
@@ -646,6 +646,46 @@ mod tests {
             channels[0].url,
             format!("http://127.0.0.1:{port}/new/stream.m3u8")
         );
+    }
+
+    #[test]
+    fn browser_playlist_follows_up_to_five_same_origin_redirects() {
+        for (redirects, expected_success, expected_requests) in [(5, true, 6), (6, false, 6)] {
+            let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+            let address = server.server_addr().to_ip().unwrap();
+            let worker = std::thread::spawn(move || {
+                let mut count = 0;
+                while let Some(request) = server
+                    .recv_timeout(std::time::Duration::from_secs(2))
+                    .unwrap()
+                {
+                    count += 1;
+                    let response = if count <= redirects {
+                        tiny_http::Response::from_string("")
+                            .with_status_code(302)
+                            .with_header(
+                                tiny_http::Header::from_bytes("Location", format!("/{count}"))
+                                    .unwrap(),
+                            )
+                    } else {
+                        tiny_http::Response::from_string(
+                            "#EXTM3U\n#EXTINF:-1,Test\nhttps://example.com/live\n",
+                        )
+                    };
+                    request.respond(response).unwrap();
+                }
+                count
+            });
+            let result = super::select_playlist(super::PlaylistRequest {
+                content: None,
+                url: Some(format!("http://{address}/start")),
+                username: None,
+                password: None,
+            });
+            let count = worker.join().unwrap();
+            assert_eq!(result.is_ok(), expected_success, "redirects: {redirects}");
+            assert_eq!(count, expected_requests, "redirects: {redirects}");
+        }
     }
 
     #[test]
