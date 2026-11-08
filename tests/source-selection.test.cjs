@@ -10,16 +10,40 @@ function setup(source = null, fetchOverride = null) {
     elements['#' + name] = {value:'', files:[], textContent:'', listeners:{}, addEventListener(type, fn) {this.listeners[type]=fn}, replaceChildren(){}, append(){}};
   }
   Object.defineProperty(elements['#source-file'], 'value', {set(value){if(value==='')this.files=[]}, get(){return this.files.length?'selected':''}});
-  elements.video = {listeners:{}, addEventListener(type,fn){this.listeners[type]=fn}};
+  elements.video = {listeners:{}, play:async()=>{}, addEventListener(type,fn){this.listeners[type]=fn}};
   const calls=[];
   elements['#channels'].children=[];
   elements['#channels'].replaceChildren=function(){this.children=[]};
   elements['#channels'].append=function(child){this.children.push(child)};
-  const document={querySelector: selector=>elements[selector], createElement:()=>({children:[],addEventListener(){},append(child){this.children.push(child)}})};
+  const document={querySelector: selector=>elements[selector], createElement:()=>({children:[],listeners:{},addEventListener(type,fn){this.listeners[type]=fn},append(child){this.children.push(child)}})};
   const fetch=async (url,options)=>{calls.push({url,options}); return fetchOverride ? fetchOverride(url,options) : {ok:true,json:async()=>url==='/api/source'?source:[]}};
   vm.runInNewContext(script,{document,fetch,Error,JSON});
   return {elements,calls};
 }
+
+test('a delayed initial channel failure does not overwrite playback of a replacement', async()=>{
+  let rejectChannels;
+  const {elements}=setup(null, url=>{
+    if(url==='/api/channels') return new Promise((_,reject)=>{rejectChannels=reject});
+    if(url==='/api/playlist') return {ok:true,json:async()=>[{name:'New',url:'https://example.org/live'}]};
+    return {ok:true,json:async()=>null};
+  });
+  elements['#source-url'].value='https://example.org/list.m3u';
+  await elements['#source-form'].listeners.submit({preventDefault(){}});
+  elements['#channels'].children[0].children[0].listeners.click();
+  rejectChannels(new Error('offline'));
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(elements['#status'].textContent,'Playing: New');
+});
+
+test('reports an initial channel failure when no replacement has succeeded', async()=>{
+  const {elements}=setup(null, url=>{
+    if(url==='/api/channels') return {ok:false};
+    return {ok:true,json:async()=>null};
+  });
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(elements['#status'].textContent,'Could not load channels.');
+});
 
 test('a delayed source restoration failure does not overwrite a successful replacement', async()=>{
   let rejectSource;
