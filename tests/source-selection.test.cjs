@@ -59,6 +59,58 @@ test('a delayed source restoration failure does not overwrite a successful repla
   assert.equal(elements['#source-status'].textContent,'Loaded 1 channels.');
 });
 
+test('a delayed source restoration failure does not overwrite empty-form validation', async()=>{
+  let rejectSource;
+  const {elements}=setup(null, url=>{
+    if(url==='/api/source') return new Promise((_,reject)=>{rejectSource=reject});
+    return {ok:true,json:async()=>[{name:'Existing',url:'https://example.org/live'}]};
+  });
+  await elements['#source-form'].listeners.submit({preventDefault(){}});
+  rejectSource(new Error('offline'));
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(elements['#source-status'].textContent,'Choose a local file or enter a playlist URL.');
+});
+
+test('restores saved fields after an empty-form submission', async()=>{
+  let resolveSource;
+  const {elements}=setup(null, url=>{
+    if(url==='/api/source') return new Promise(resolve=>{resolveSource=resolve});
+    return {ok:true,json:async()=>[]};
+  });
+  await elements['#source-form'].listeners.submit({preventDefault(){}});
+  resolveSource({ok:true,json:async()=>({url:'https://example.org/list.m3u',username:'alice',password:'secret'})});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(elements['#source-url'].value,'https://example.org/list.m3u');
+  assert.equal(elements['#source-user'].value,'alice');
+  assert.equal(elements['#source-password'].value,'secret');
+  assert.equal(elements['#source-status'].textContent,'Choose a local file or enter a playlist URL.');
+});
+
+test('a delayed empty channel response does not overwrite validation', async()=>{
+  let resolveChannels;
+  const {elements}=setup(null, url=>{
+    if(url==='/api/channels') return new Promise(resolve=>{resolveChannels=resolve});
+    return {ok:true,json:async()=>null};
+  });
+  await elements['#source-form'].listeners.submit({preventDefault(){}});
+  resolveChannels({ok:true,json:async()=>[]});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(elements['#source-status'].textContent,'Choose a local file or enter a playlist URL.');
+});
+
+test('an oversized-file warning survives a delayed source restoration failure', async()=>{
+  let rejectSource;
+  const {elements}=setup(null, url=>{
+    if(url==='/api/source') return new Promise((_,reject)=>{rejectSource=reject});
+    return {ok:true,json:async()=>[]};
+  });
+  elements['#source-file'].files=[{size:10*1024*1024+1}];
+  await elements['#source-form'].listeners.submit({preventDefault(){}});
+  rejectSource(new Error('offline'));
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(elements['#source-status'].textContent,'Playlist exceeds 10 MiB.');
+});
+
 test('preserves initial channels when a replacement fails before they arrive', async()=>{
   let resolveChannels;
   const {elements}=setup(null, url=>{
