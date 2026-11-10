@@ -18,6 +18,8 @@ Start with `--web --foreground` and no `--playlist` to choose a source after ope
 ## Troubleshooting
 
 - **No channels:** check UTF-8, supported HTTP(S) stream URLs and playlist formatting; see [playlist support](playlists-security.md).
+- **Playlist cannot be loaded:** check the [input, channel-count and expanded-size limits](playlists-security.md#playlist-limits). A long base URL can make resolved relative URLs exceed the expanded limit even when the input is small.
+- **Server busy:** concurrent playlist loads and state reads are bounded; retry after other requests finish. Slow loads do not normally block unrelated requests, but responsiveness is not guaranteed under heavy load.
 - **Bind failure:** choose another nonzero port and use foreground mode to see the error.
 - **Container cannot read a startup playlist:** check any explicitly mounted host file exists and is readable by UID 10001. The browser file picker does not require a mount.
 - **Browser cannot reach container:** use supported host networking; published ports alone do not reach container loopback.

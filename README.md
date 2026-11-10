@@ -40,6 +40,8 @@ Open http://127.0.0.1:8080 and select a playlist as above. Stop the server with 
 
 An explicit `--playlist` path or HTTP(S) URL takes precedence over the default startup file. Without it, web mode checks `$XDG_CONFIG_HOME/iptv-slayer/channels.m3u` (or `~/.config/iptv-slayer/channels.m3u` when unset or relative); if absent or unreadable, the UI prompts for a source. In Docker this is the container's config directory, not the host's. An explicitly supplied playlist that cannot be read causes startup to fail; a readable playlist with no supported channels yields an empty list. The browser can select a different playlist without restarting.
 
+Playlists are limited to 10 MiB of input, 100,000 supported channels, and 10 MiB total for parsed channel names and resolved URLs. Relative URLs can make the parsed result larger than the input. Oversized playlists are rejected; see [playlist limits](docs/playlists-security.md).
+
 ## Saved sources and security
 
 A successful browser selection saves the source configuration and a snapshot of its channels on the server. Uploaded file contents are saved too, although browsers cannot repopulate the file picker. Saved URLs are **not automatically refreshed**; use **Load playlist** to fetch a URL again.
@@ -55,6 +57,7 @@ The browser fetches streams directly. Codec, HLS, cross-origin, provider authent
 ## Troubleshooting
 
 - **No channels:** Check UTF-8, M3U formatting, and HTTP(S) stream URLs; see [playlist support](docs/playlists-security.md).
+- **Playlist fails to load or server is busy:** Check the playlist limits; concurrent work is bounded, so retry a busy request after other loads finish.
 - **Cannot open the UI or port already in use:** Check `docker compose logs` or run the source server in foreground; choose another nonzero port if needed. For Compose, add `"--port", "8081"` to the `command` list in `compose.yaml` and recreate the container. Published Docker ports alone do not reach the container's loopback listener.
 - **Old container says `--playlist` is required, or reports `Is a directory`:** Check the checkout and `docker compose config` for old commands, bind mounts, or override files. The current Compose file needs no playlist mount. Run `docker compose up -d --build --force-recreate` to rebuild and recreate without deleting the data volume. Check a host `channels.m3u` directory's contents before moving it; remove it only if known to be empty.
 - **Explicitly mounted playlist cannot be read:** Check that the file exists and is readable by container UID 10001. The browser file picker needs no mount.

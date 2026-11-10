@@ -137,11 +137,21 @@ pub fn read(id: &str) -> Result<String> {
     Ok(out)
 }
 #[cfg(unix)]
-pub fn write(id: &str, data: &str) -> Result<()> {
+pub fn write(id: &str, data: &str, committed: impl FnOnce()) -> Result<()> {
     if data.len() > MAX_STATE {
         bail!("state too large");
     }
     let dir = client(id, true)?;
+    write_in_dir(&dir, data, committed, |dir| dir.sync_all())
+}
+
+#[cfg(unix)]
+fn write_in_dir(
+    dir: &File,
+    data: &str,
+    committed: impl FnOnce(),
+    sync: impl FnOnce(&File) -> std::io::Result<()>,
+) -> Result<()> {
     let temp = std::ffi::CString::new(format!(".{}", self::id()?))?;
     let fd = unsafe {
         libc::openat(
@@ -169,7 +179,8 @@ pub fn write(id: &str, data: &str) -> Result<()> {
         {
             return Err(std::io::Error::last_os_error().into());
         }
-        dir.sync_all()?;
+        committed();
+        sync(dir)?;
         Ok(())
     })();
     if result.is_err() {
@@ -184,6 +195,29 @@ pub fn read(_: &str) -> Result<String> {
     bail!("secure storage unavailable")
 }
 #[cfg(not(unix))]
-pub fn write(_: &str, _: &str) -> Result<()> {
+pub fn write(_: &str, _: &str, _: impl FnOnce()) -> Result<()> {
     bail!("secure storage unavailable")
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    #[test]
+    fn rename_is_reported_before_directory_sync_failure() {
+        let path = tempfile::tempdir().unwrap();
+        let dir = File::open(path.path()).unwrap();
+        let mut committed = false;
+        let result = write_in_dir(
+            &dir,
+            "new",
+            || committed = true,
+            |_| Err(std::io::Error::other("sync failure")),
+        );
+        assert!(result.is_err());
+        assert!(committed);
+        assert_eq!(
+            std::fs::read_to_string(path.path().join("channels.json")).unwrap(),
+            "new"
+        );
+    }
 }
