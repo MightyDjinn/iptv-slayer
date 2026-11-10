@@ -65,7 +65,7 @@ The browser fetches streams directly. Codec, HLS, cross-origin, provider authent
 
 ## CLI and Docker commands
 
-For the source build, supply a local file or HTTP(S) playlist URL:
+For the source build, supply a local regular file or HTTP(S) playlist URL. Special files such as named pipes are rejected:
 
 ```sh
 ./target/release/iptv-slayer --playlist ./channels.m3u list
