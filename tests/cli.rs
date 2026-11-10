@@ -58,6 +58,45 @@ fn reports_directory_instead_of_playlist_file() {
     assert!(stderr.contains("playlist path is a directory"), "{stderr}");
 }
 
+#[cfg(unix)]
+#[test]
+fn rejects_fifo_playlist_without_waiting_for_writer() {
+    use std::time::{Duration, Instant};
+    let dir = tempfile::tempdir().unwrap();
+    let fifo = dir.path().join("playlist.fifo");
+    assert!(Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap()
+        .success());
+    let mut child = Command::new(env!("CARGO_BIN_EXE_iptv-slayer"))
+        .arg("--playlist")
+        .arg(&fifo)
+        .arg("list")
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        if child.try_wait().unwrap().is_some() {
+            let output = child.wait_with_output().unwrap();
+            assert!(!output.status.success());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("playlist path is not a regular file"),
+                "{stderr}"
+            );
+            break;
+        }
+        if Instant::now() >= deadline {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            panic!("playlist loading blocked on a FIFO without a writer");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 #[test]
 fn rejects_web_combined_with_list() {
     let dir = tempfile::tempdir().unwrap();

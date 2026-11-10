@@ -3,7 +3,6 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::File,
     io::{BufRead, BufReader, Read, Write},
     process::{Command, Stdio},
     time::Duration,
@@ -134,13 +133,23 @@ fn load(source: &str) -> Result<Vec<Channel>> {
 }
 
 fn load_local_playlist(path: &std::path::Path) -> Result<Vec<Channel>> {
-    let mut file = File::open(path).context("could not open playlist")?;
-    if file
-        .metadata()
-        .context("could not inspect playlist")?
-        .is_dir()
-    {
+    #[cfg(unix)]
+    let mut file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(path)
+    }
+    .context("could not open playlist")?;
+    #[cfg(not(unix))]
+    let mut file = std::fs::File::open(path).context("could not open playlist")?;
+    let metadata = file.metadata().context("could not inspect playlist")?;
+    if metadata.is_dir() {
         bail!("playlist path is a directory, not a file; replace it with your M3U playlist (Docker may have created the directory when the file was missing)");
+    }
+    if !metadata.is_file() {
+        bail!("playlist path is not a regular file");
     }
     read_playlist(&mut file, None)
 }
