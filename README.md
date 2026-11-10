@@ -56,7 +56,7 @@ The browser fetches streams directly. Codec, HLS, cross-origin, provider authent
 
 ## Troubleshooting
 
-- **No channels:** Check UTF-8, M3U formatting, and HTTP(S) stream URLs; see [playlist support](docs/playlists-security.md).
+- **No channels:** Check UTF-8, M3U formatting, and HTTP(S) stream URLs; browser uploads reject invalid UTF-8 without replacing the current playlist. See [playlist support](docs/playlists-security.md).
 - **Playlist fails to load or server is busy:** Check the playlist limits; concurrent work is bounded, so retry a busy request after other loads finish.
 - **Cannot open the UI or port already in use:** Check `docker compose logs` or run the source server in foreground; choose another nonzero port if needed. For Compose, add `"--port", "8081"` to the `command` list in `compose.yaml` and recreate the container. Published Docker ports alone do not reach the container's loopback listener.
 - **Old container says `--playlist` is required, or reports `Is a directory`:** Check the checkout and `docker compose config` for old commands, bind mounts, or override files. The current Compose file needs no playlist mount. Run `docker compose up -d --build --force-recreate` to rebuild and recreate without deleting the data volume. Check a host `channels.m3u` directory's contents before moving it; remove it only if known to be empty.

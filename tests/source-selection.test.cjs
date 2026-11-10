@@ -17,7 +17,7 @@ function setup(source = null, fetchOverride = null) {
   elements['#channels'].append=function(child){this.children.push(child)};
   const document={querySelector: selector=>elements[selector], createElement:()=>({children:[],listeners:{},addEventListener(type,fn){this.listeners[type]=fn},append(child){this.children.push(child)}})};
   const fetch=async (url,options)=>{calls.push({url,options}); return fetchOverride ? fetchOverride(url,options) : {ok:true,json:async()=>url==='/api/source'?source:[]}};
-  vm.runInNewContext(script,{document,fetch,Error,JSON});
+  vm.runInNewContext(script,{document,fetch,Error,JSON,TextDecoder});
   return {elements,calls};
 }
 
@@ -189,12 +189,12 @@ test('submits an unauthenticated URL without empty credential fields', async()=>
 test('ignores a second source submission while the first is being read', async()=>{
   const {elements,calls}=setup();
   let finish;
-  elements['#source-file'].files=[{size:30,text:()=>new Promise(resolve=>{finish=resolve})}];
+  elements['#source-file'].files=[{size:30,arrayBuffer:()=>new Promise(resolve=>{finish=resolve})}];
   const first=elements['#source-form'].listeners.submit({preventDefault(){}});
   elements['#source-file'].files=[];
   elements['#source-url'].value='https://example.org/list.m3u';
   await elements['#source-form'].listeners.submit({preventDefault(){}});
-  finish('#EXTM3U\n');
+  finish(Buffer.from('#EXTM3U\n'));
   await first;
   const requests=calls.filter(c=>c.url==='/api/playlist');
   assert.equal(requests.length,1);
@@ -203,7 +203,7 @@ test('ignores a second source submission while the first is being read', async()
 
 test('loads a URL after a successful local file upload', async()=>{
   const {elements,calls}=setup();
-  elements['#source-file'].files=[{size:8,text:async()=>'#EXTM3U\n'}];
+  elements['#source-file'].files=[{size:8,arrayBuffer:async()=>Buffer.from('#EXTM3U\n')}];
   await elements['#source-form'].listeners.submit({preventDefault(){}});
   elements['#source-url'].value='https://example.org/list.m3u';
   await elements['#source-form'].listeners.submit({preventDefault(){}});
@@ -215,12 +215,12 @@ test('loads a URL after a successful local file upload', async()=>{
 test('preserves a new file selected during an upload', async()=>{
   const {elements}=setup();
   let finish;
-  const firstFile={size:8,text:()=>new Promise(resolve=>{finish=resolve})};
-  const nextFile={size:8,text:async()=>'#EXTM3U\n'};
+  const firstFile={size:8,arrayBuffer:()=>new Promise(resolve=>{finish=resolve})};
+  const nextFile={size:8,arrayBuffer:async()=>Buffer.from('#EXTM3U\n')};
   elements['#source-file'].files=[firstFile];
   const pending=elements['#source-form'].listeners.submit({preventDefault(){}});
   elements['#source-file'].files=[nextFile];
-  finish('#EXTM3U\n');
+  finish(Buffer.from('#EXTM3U\n'));
   await pending;
   assert.equal(elements['#source-file'].files[0],nextFile);
 });
@@ -228,13 +228,13 @@ test('preserves a new file selected during an upload', async()=>{
 test('preserves URL and credentials edited while a local upload is pending', async()=>{
   const {elements}=setup();
   let finish;
-  elements['#source-file'].files=[{size:8,text:()=>new Promise(resolve=>{finish=resolve})}];
+  elements['#source-file'].files=[{size:8,arrayBuffer:()=>new Promise(resolve=>{finish=resolve})}];
   const pending=elements['#source-form'].listeners.submit({preventDefault(){}});
   for(const [name,value] of [['source-url','https://example.org/new.m3u'],['source-user','alice'],['source-password','secret']]){
     elements['#'+name].value=value;
     elements['#'+name].listeners.input();
   }
-  finish('#EXTM3U\n');
+  finish(Buffer.from('#EXTM3U\n'));
   await pending;
   assert.equal(elements['#source-url'].value,'https://example.org/new.m3u');
   assert.equal(elements['#source-user'].value,'alice');
@@ -247,11 +247,11 @@ test('clears stale credentials when only the URL changes during a local upload',
   elements['#source-url'].value='https://old.example/list.m3u';
   elements['#source-user'].value='olduser';
   elements['#source-password'].value='oldsecret';
-  elements['#source-file'].files=[{size:8,text:()=>new Promise(resolve=>{finish=resolve})}];
+  elements['#source-file'].files=[{size:8,arrayBuffer:()=>new Promise(resolve=>{finish=resolve})}];
   const pending=elements['#source-form'].listeners.submit({preventDefault(){}});
   elements['#source-url'].value='https://new.example/list.m3u';
   elements['#source-url'].listeners.input();
-  finish('#EXTM3U\n');
+  finish(Buffer.from('#EXTM3U\n'));
   await pending;
   await elements['#source-form'].listeners.submit({preventDefault(){}});
   const requests=calls.filter(c=>c.url==='/api/playlist');
@@ -260,8 +260,17 @@ test('clears stale credentials when only the URL changes during a local upload',
 
 test('uploads the chosen local file contents', async()=>{
   const {elements,calls}=setup();
-  elements['#source-file'].files=[{size:30,text:async()=>'#EXTM3U\n'}];
+  elements['#source-file'].files=[new Blob(['#EXTM3U\n#EXTINF:-1,Café\nhttps://example.org/live\n'])];
   await elements['#source-form'].listeners.submit({preventDefault(){}});
   const request=calls.find(c=>c.url==='/api/playlist');
-  assert.deepEqual(JSON.parse(request.options.body),{content:'#EXTM3U\n'});
+  assert.deepEqual(JSON.parse(request.options.body),{content:'#EXTM3U\n#EXTINF:-1,Café\nhttps://example.org/live\n'});
+});
+
+test('rejects invalid UTF-8 without replacing the playlist', async()=>{
+  const {elements,calls}=setup();
+  elements['#source-file'].files=[new Blob([Buffer.from([0x23,0x45,0x58,0x54,0x4d,0x33,0x55,0x0a,0xff])])];
+  await elements['#source-form'].listeners.submit({preventDefault(){}});
+  assert.equal(calls.filter(c=>c.url==='/api/playlist').length,0);
+  assert.match(elements['#source-status'].textContent,/utf-8/i);
+  assert.equal(elements['#source-file'].files.length,1);
 });
