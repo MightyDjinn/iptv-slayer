@@ -331,9 +331,9 @@ fn select_playlist(input: PlaylistRequest) -> Result<Vec<Channel>> {
             if input.password.is_some() && input.username.is_none() {
                 bail!("missing username");
             }
-            let username = input
-                .username
-                .or_else(|| (!embedded_user.is_empty()).then_some(embedded_user));
+            let username = input.username.or_else(|| {
+                (!embedded_user.is_empty() || embedded_password.is_some()).then_some(embedded_user)
+            });
             let password = input.password.or(embedded_password);
             let client = reqwest::blocking::Client::builder()
                 .timeout(Duration::from_secs(20))
@@ -1017,6 +1017,37 @@ mod tests {
             .join()
             .unwrap()
             .contains("authorization: basic dxnlcjpwqhnz"));
+    }
+
+    #[test]
+    fn url_password_with_empty_username_uses_basic_auth() {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let address = server.server_addr().to_ip().unwrap();
+        let worker = std::thread::spawn(move || {
+            let request = server
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap()
+                .unwrap();
+            let authorization = request
+                .headers()
+                .iter()
+                .find(|header| header.field.equiv("Authorization"))
+                .map(|header| header.value.as_str().to_owned());
+            request
+                .respond(tiny_http::Response::from_string(
+                    "https://example.com/live\n",
+                ))
+                .unwrap();
+            authorization
+        });
+        let result = super::select_playlist(super::PlaylistRequest {
+            content: None,
+            url: Some(format!("http://:pass@{address}/playlist")),
+            username: None,
+            password: None,
+        });
+        assert!(result.is_ok());
+        assert_eq!(worker.join().unwrap().as_deref(), Some("Basic OnBhc3M="));
     }
 
     #[test]
