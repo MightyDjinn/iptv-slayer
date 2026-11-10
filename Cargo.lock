@@ -375,6 +375,7 @@ dependencies = [
  "http",
  "http-body",
  "httparse",
+ "httpdate",
  "itoa",
  "pin-project-lite",
  "smallvec",
@@ -537,7 +538,11 @@ name = "iptv-slayer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "clap",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "libc",
  "percent-encoding",
  "reqwest",
@@ -545,6 +550,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tiny_http",
+ "tokio",
  "url",
 ]
 
