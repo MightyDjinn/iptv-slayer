@@ -611,6 +611,60 @@ fn web_replaces_playlist_from_content() {
     assert!(!text.contains("pass"));
     assert!(text.contains(&format!("http://127.0.0.1:{upstream_port}/stream.m3u8")));
     worker.join().unwrap();
+
+    // Same-origin redirects must retain credentials without changing the selected playlist.
+    let redirected = TcpListener::bind("127.0.0.1:0").unwrap();
+    let redirected_port = redirected.local_addr().unwrap().port();
+    let worker = std::thread::spawn(move || {
+        use std::io::{BufRead, BufReader, Write};
+        for path in ["/list", "/final"] {
+            let (mut stream, _) = redirected.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = BufReader::new(&stream);
+            let mut request = String::new();
+            loop {
+                let mut line = String::new();
+                assert!(reader.read_line(&mut line).unwrap() > 0);
+                if line == "\r\n" {
+                    break;
+                }
+                request.push_str(&line);
+            }
+            assert!(request.starts_with(&format!("GET {path} ")), "{request}");
+            assert!(
+                request.lines().any(|line| line
+                    .split_once(':')
+                    .is_some_and(|(name, value)| name.eq_ignore_ascii_case("authorization")
+                        && value.trim() == "Basic dXNlcjpwYXNz")),
+                "missing Basic auth"
+            );
+            if path == "/list" {
+                write!(stream, "HTTP/1.1 302 Found\r\nLocation: /final\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+            } else {
+                let body = "#EXTM3U\n#EXTINF:-1,Redirected\nstream.m3u8\n";
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+                .unwrap();
+            }
+        }
+    });
+    let response = client
+        .post(&endpoint)
+        .header("Origin", &origin)
+        .header("Content-Type", "application/json")
+        .body(serde_json::json!({"url": format!("http://127.0.0.1:{redirected_port}/list"), "username": "user", "password": "pass"}).to_string())
+        .send()
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert!(response.text().unwrap().contains("Redirected"));
+    worker.join().unwrap();
+
     let destination = TcpListener::bind("127.0.0.1:0").unwrap();
     destination.set_nonblocking(true).unwrap();
     let dest_port = destination.local_addr().unwrap().port();
@@ -643,7 +697,7 @@ fn web_replaces_playlist_from_content() {
         .unwrap()
         .text()
         .unwrap()
-        .contains("Authenticated"));
+        .contains("Redirected"));
 }
 
 #[test]
