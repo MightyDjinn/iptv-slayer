@@ -100,6 +100,8 @@ cargo test --locked --all-targets
 # Linux and bubblewrap required
 python3 tests/random-without-device.py
 node --test tests/source-selection.test.cjs
+# Requires Chromium; override CHROME_BIN if the executable has a different name
+node --test tests/source-validation-browser.test.cjs
 cargo clippy --locked --all-targets -- -D warnings
 node --test tests/playback.test.cjs
 node --test tests/docker-config.test.cjs
