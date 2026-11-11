@@ -53,6 +53,10 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Run tests
         run: cargo test --locked --all-targets
+      - name: Install bubblewrap
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - name: Test secure IDs without /dev/urandom
+        run: python3 tests/random-without-device.py
       - name: Test playlist source selection
         run: node --test tests/source-selection.test.cjs
       - name: Run Clippy

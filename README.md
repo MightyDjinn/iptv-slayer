@@ -97,6 +97,8 @@ CI runs the following Rust and Node checks, plus a Docker Compose integration te
 ```sh
 cargo fmt --all -- --check
 cargo test --locked --all-targets
+# Linux and bubblewrap required
+python3 tests/random-without-device.py
 node --test tests/source-selection.test.cjs
 cargo clippy --locked --all-targets -- -D warnings
 node --test tests/playback.test.cjs

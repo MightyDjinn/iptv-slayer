@@ -12,7 +12,8 @@ use std::{
 
 pub fn id() -> Result<String> {
     let mut bytes = [0u8; 32];
-    File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+    getrandom::getrandom(&mut bytes)
+        .map_err(|e| anyhow::anyhow!("secure random generation failed: {e}"))?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 pub fn valid(id: &str) -> bool {
@@ -197,6 +198,18 @@ pub fn read(_: &str) -> Result<String> {
 #[cfg(not(unix))]
 pub fn write(_: &str, _: &str, _: impl FnOnce()) -> Result<()> {
     bail!("secure storage unavailable")
+}
+
+#[cfg(test)]
+mod id_tests {
+    #[test]
+    fn generates_distinct_valid_ids() {
+        let first = super::id().expect("secure random IDs must be available");
+        let second = super::id().expect("secure random IDs must be available");
+        assert!(super::valid(&first));
+        assert!(super::valid(&second));
+        assert_ne!(first, second);
+    }
 }
 
 #[cfg(all(test, unix))]
