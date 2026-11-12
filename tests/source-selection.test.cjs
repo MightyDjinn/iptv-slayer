@@ -45,6 +45,34 @@ test('reports an initial channel failure when no replacement has succeeded', asy
   assert.equal(elements['#status'].textContent,'Could not load channels.');
 });
 
+test('a successful replacement clears an earlier initial channel load error', async()=>{
+  const {elements}=setup(null, url=>{
+    if(url==='/api/channels') return {ok:false};
+    if(url==='/api/playlist') return {ok:true,json:async()=>[{name:'New',url:'https://example.org/live'}]};
+    return {ok:true,json:async()=>null};
+  });
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(elements['#status'].textContent,'Could not load channels.');
+  elements['#source-url'].value='https://example.org/list.m3u';
+  await elements['#source-form'].listeners.submit({preventDefault(){}});
+  assert.equal(elements['#channels'].children[0].children[0].textContent,'1. New');
+  assert.equal(elements['#source-status'].textContent,'Loaded 1 channels.');
+  assert.equal(elements['#status'].textContent,'');
+});
+
+test('a successful replacement preserves an active playback status', async()=>{
+  const {elements}=setup(null, url=>{
+    if(url==='/api/channels') return {ok:true,json:async()=>[{name:'Current',url:'https://example.org/live'}]};
+    if(url==='/api/playlist') return {ok:true,json:async()=>[{name:'New',url:'https://example.org/new'}]};
+    return {ok:true,json:async()=>null};
+  });
+  await new Promise(resolve=>setImmediate(resolve));
+  elements['#channels'].children[0].children[0].listeners.click();
+  elements['#source-url'].value='https://example.org/list.m3u';
+  await elements['#source-form'].listeners.submit({preventDefault(){}});
+  assert.equal(elements['#status'].textContent,'Playing: Current');
+});
+
 test('a delayed source restoration failure does not overwrite a successful replacement', async()=>{
   let rejectSource;
   const {elements}=setup(null, url=>{
