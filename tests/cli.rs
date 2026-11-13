@@ -47,6 +47,63 @@ fn lists_and_searches_playlist() {
 }
 
 #[test]
+fn cli_url_userinfo_authenticates_playlist_requests() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+
+    for (userinfo, expected) in [
+        ("user:p%40ss", "Basic dXNlcjpwQHNz"),
+        (":pass", "Basic OnBhc3M="),
+    ] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut authorization = None;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap() == 0 || line == "\r\n" {
+                    break;
+                }
+                if let Some((name, value)) = line.split_once(':') {
+                    if name.eq_ignore_ascii_case("authorization") {
+                        authorization = Some(value.trim().to_owned());
+                    }
+                }
+            }
+            let body = "#EXTM3U\n#EXTINF:-1,Authenticated channel\nhttps://example.com/live\n";
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+            authorization
+        });
+        let output = Command::new(env!("CARGO_BIN_EXE_iptv-slayer"))
+            .args([
+                "--playlist",
+                &format!("http://{userinfo}@127.0.0.1:{port}/list.m3u"),
+                "list",
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(server.join().unwrap().as_deref(), Some(expected));
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Authenticated channel"));
+    }
+}
+
+#[test]
 fn reports_directory_instead_of_playlist_file() {
     let dir = tempfile::tempdir().unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_iptv-slayer"))
