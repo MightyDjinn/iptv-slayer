@@ -92,7 +92,7 @@ With no arguments the image runs the foreground web UI; Ctrl-C stops it. Supplyi
 
 See the [full documentation](docs/index.md), including [installation](docs/installation.md), [usage](docs/usage.md), [security](docs/playlists-security.md), and [development](docs/development.md). When Pages is enabled, it is published at https://mightydjinn.github.io/iptv-slayer/.
 
-CI runs the following Rust and Node checks, plus a Docker Compose integration test and a Trivy filesystem scan for HIGH/CRITICAL vulnerabilities and secrets:
+CI runs the following Rust and Node checks, plus a Docker Compose integration test and a Trivy filesystem scan for HIGH/CRITICAL vulnerabilities and secrets. Pages deployment waits for these jobs and the documentation build to succeed:
 
 ```sh
 cargo fmt --all -- --check

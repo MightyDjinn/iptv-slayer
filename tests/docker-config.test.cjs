@@ -6,6 +6,16 @@ const { execFileSync } = require('node:child_process');
 
 const root = path.join(__dirname, '..');
 
+test('Pages deployment waits for the Docker Compose integration job', () => {
+  const workflow = fs.readFileSync(path.join(root, '.github/workflows/pr-tests.yml'), 'utf8');
+  const deploy = workflow.match(/^  deploy:\s*\n([\s\S]*)/m);
+  assert.ok(deploy, 'Pages deploy job must exist');
+  const needs = deploy[1].match(/^    needs:\s*\[([^\]]+)\]/m);
+  assert.ok(needs, 'Pages deploy job must declare dependencies');
+  assert.ok(needs[1].split(',').map((job) => job.trim()).includes('docker-integration'),
+    'Pages must not deploy if Docker Compose integration fails');
+});
+
 test('Docker image defaults to foreground web mode', () => {
   const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
   const commands = [...dockerfile.matchAll(/^CMD\s+(.+)$/gim)];
