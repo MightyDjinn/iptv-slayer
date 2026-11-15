@@ -124,6 +124,9 @@ fn load(source: &str) -> Result<Vec<Channel>> {
             .error_for_status()
             .map_err(|e| e.without_url())
             .context("playlist request failed")?;
+        if !response.status().is_success() {
+            bail!("playlist request failed: HTTP {}", response.status());
+        }
         base = Some(response.url().clone());
         Box::new(response)
     } else {
