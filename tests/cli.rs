@@ -104,6 +104,40 @@ fn cli_url_userinfo_authenticates_playlist_requests() {
 }
 
 #[test]
+fn cli_rejects_unfollowable_redirect_response() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0; 4096];
+        assert!(stream.read(&mut request).unwrap() > 0);
+        let body = "#EXTM3U\n#EXTINF:-1,Not a playlist\nhttps://example.com/live\n";
+        write!(
+            stream,
+            "HTTP/1.1 302 Found\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
+        .unwrap();
+    });
+    let output = Command::new(env!("CARGO_BIN_EXE_iptv-slayer"))
+        .args([
+            "--playlist",
+            &format!("http://127.0.0.1:{port}/list"),
+            "list",
+        ])
+        .output()
+        .unwrap();
+    server.join().unwrap();
+    assert!(!output.status.success(), "redirect response must fail");
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("Not a playlist"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("302"));
+}
+
+#[test]
 fn reports_directory_instead_of_playlist_file() {
     let dir = tempfile::tempdir().unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_iptv-slayer"))
