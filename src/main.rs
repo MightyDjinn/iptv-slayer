@@ -24,8 +24,8 @@ struct Args {
     /// Run the web UI in the foreground (for containers and services).
     #[arg(long, requires = "web")]
     foreground: bool,
-    /// Loopback web UI port.
-    #[arg(long, default_value_t = 8080)]
+    /// Loopback web UI port (1–65535).
+    #[arg(long, default_value_t = 8080, value_parser = clap::value_parser!(u16).range(1..))]
     port: u16,
     #[command(subcommand)]
     command: Option<Action>,
@@ -882,6 +882,16 @@ async fn read_state(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn rejects_zero_web_port() {
+        use clap::Parser;
+        let result = super::Args::try_parse_from(["iptv-slayer", "--web", "--port", "0"]);
+        assert!(
+            result.is_err(),
+            "port zero cannot be used to reach the web UI"
+        );
+    }
+
     #[test]
     fn rejects_amplified_relative_urls() {
         let base = url::Url::parse(&format!(
