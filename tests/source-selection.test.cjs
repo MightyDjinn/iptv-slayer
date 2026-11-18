@@ -99,6 +99,48 @@ test('a delayed source restoration failure does not overwrite empty-form validat
   assert.equal(elements['#source-status'].textContent,'Choose a local file or enter a playlist URL.');
 });
 
+test('restores untouched source fields after an early password edit', async()=>{
+  let resolveSource;
+  const {elements}=setup(null, url=>url==='/api/source'
+    ? new Promise(resolve=>{resolveSource=resolve})
+    : {ok:true,json:async()=>[]});
+  elements['#source-password'].value='new-password';
+  elements['#source-password'].listeners.input();
+  resolveSource({ok:true,json:async()=>({url:'https://example.org/list.m3u',username:'alice',password:'old-password'})});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(elements['#source-url'].value,'https://example.org/list.m3u');
+  assert.equal(elements['#source-user'].value,'alice');
+  assert.equal(elements['#source-password'].value,'new-password');
+});
+
+test('does not restore saved credentials after the URL is edited', async()=>{
+  let resolveSource;
+  const {elements}=setup(null, url=>url==='/api/source'
+    ? new Promise(resolve=>{resolveSource=resolve})
+    : {ok:true,json:async()=>[]});
+  elements['#source-url'].value='https://other.example/list.m3u';
+  elements['#source-url'].listeners.input();
+  resolveSource({ok:true,json:async()=>({url:'https://example.org/list.m3u',username:'alice',password:'secret'})});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(elements['#source-url'].value,'https://other.example/list.m3u');
+  assert.equal(elements['#source-user'].value,'');
+  assert.equal(elements['#source-password'].value,'');
+});
+
+test('does not restore an old password after the username is edited', async()=>{
+  let resolveSource;
+  const {elements}=setup(null, url=>url==='/api/source'
+    ? new Promise(resolve=>{resolveSource=resolve})
+    : {ok:true,json:async()=>[]});
+  elements['#source-user'].value='bob';
+  elements['#source-user'].listeners.input();
+  resolveSource({ok:true,json:async()=>({url:'https://example.org/list.m3u',username:'alice',password:'secret'})});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(elements['#source-url'].value,'https://example.org/list.m3u');
+  assert.equal(elements['#source-user'].value,'bob');
+  assert.equal(elements['#source-password'].value,'');
+});
+
 test('restores saved fields after an empty-form submission', async()=>{
   let resolveSource;
   const {elements}=setup(null, url=>{
